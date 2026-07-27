@@ -13,6 +13,10 @@ const clean = (text: string, max = 4000): string => text.replace(/\x1b(?:\[[0-?]
 const age = (ms: number): string => { const s = Math.max(0, Math.floor((Date.now() - ms) / 1000)); return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`; };
 const live = (p: ProcessInfo): boolean => ['running', 'terminating', 'terminate_timeout'].includes(p.status);
 const tail = (file: string, count: number): string[] => { try { return readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).slice(-count); } catch { return []; } };
+export const appendInputLog = (file: string, text: string): void => {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n$/, '').split('\n');
+  appendFileSync(file, `${lines.map((line) => `0:${clean(line)}`).join('\n')}\n`);
+};
 interface ProcessEvent { title: string; tone: string; lines: string[] }
 class ProcessEventCard {
   constructor(private readonly event: ProcessEvent, private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
@@ -69,6 +73,7 @@ export default function processesExtension(pi: ExtensionAPI): void {
   };
   const openProcessDashboard = async (initialId: string | undefined, ctx: ExtensionCommandContext): Promise<void> => {
     await ctx.ui.custom<void>((tui, theme, _keys, done) => {
+      let open = true;
       const rows = (): InteractiveRow[] => manager.list().map((process) => ({
         id: process.id,
         label: process.name,
@@ -78,24 +83,19 @@ export default function processesExtension(pi: ExtensionAPI): void {
         tone: live(process) ? 'success' : process.success ? 'muted' : 'error',
       }));
       let list: PiwiInteractiveList;
-      const refresh = (): void => { list.setTitle(`● Processes · ${manager.list().filter(live).length} running`); list.setRows(rows(), list.selectedRow()?.id ?? initialId); tui.requestRender(); };
+      const refresh = (): void => { if (!open) return; list.setTitle(`● Processes · ${manager.list().filter(live).length} running`); list.setRows(rows(), list.selectedRow()?.id ?? initialId); tui.requestRender(); };
       list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
         title: `● Processes · ${manager.list().filter(live).length} running`,
-        empty: 'No session processes — press n to start one.',
-        controls: ['↑↓ select · enter/l logs · n start', 'i send input · s stop · esc close'],
-        onClose: () => done(undefined),
+        empty: 'No session processes are running; the process tool starts one with Guard coverage.',
+        controls: ['↑↓ select · enter/l logs', 'i send input · s stop · esc close'],
+        onClose: () => { open = false; refreshDashboard = undefined; done(undefined); },
+        requestRender: () => tui.requestRender(),
         onInput: (data, selected) => {
           if ((matchesKey(data, Key.enter) || data === 'l') && selected) return void showLogs(ctx, selected.id).then(refresh);
-          if (data === 'n') return void (async () => {
-            const command = await ctx.ui.input('Start a session process', 'Shell command'); if (command === undefined || !command.trim()) return;
-            if (manager.list().filter(live).length >= MAX_PROCESSES) return void ctx.ui.notify(`At most ${MAX_PROCESSES} session processes may run at once.`, 'warning');
-            const name = await ctx.ui.input('Process name (optional)', command.trim().split(/\s+/)[0] ?? 'process');
-            manager.start(clean(name?.trim() || command.trim().split(/\s+/)[0] || 'process', 80), command.trim(), ctx.cwd); refresh();
-          })();
           if (data === 'i' && selected) return void (async () => {
             const text = await ctx.ui.input('Send process input', 'Text followed by Enter'); if (text === undefined) return;
             const result = manager.writeToStdin(selected.id, `${text}\n`); if (!result.ok) ctx.ui.notify(`Could not send input: ${result.reason}.`, 'warning');
-            else { const logs = manager.getLogFiles(selected.id); if (logs) appendFileSync(logs.combinedFile, `0:${text}\n`); }
+            else { const logs = manager.getLogFiles(selected.id); if (logs) appendInputLog(logs.combinedFile, text); }
             refresh();
           })();
           if (data === 's' && selected) return void (async () => {
@@ -161,7 +161,7 @@ export default function processesExtension(pi: ExtensionAPI): void {
       if (params.action === 'stop') { const result = await manager.kill(id, { timeoutMs: 5_000 }); if (!result.ok) throw new Error(`Could not stop ${id}: ${result.reason}.`); return { content: [{ type: 'text', text: `Stopped ${result.info.name} (${id}).` }], details: { process: result.info } }; }
       if (params.action === 'send') {
         const text = params.text ?? ''; const result = manager.writeToStdin(id, text.endsWith('\n') ? text : `${text}\n`); if (!result.ok) throw new Error(`Could not send input: ${result.reason}.`);
-        const logs = manager.getLogFiles(id); if (logs) appendFileSync(logs.combinedFile, `0:${text.replace(/\r?\n$/, '')}\n`);
+        const logs = manager.getLogFiles(id); if (logs) appendInputLog(logs.combinedFile, text);
         return { content: [{ type: 'text', text: `Sent input to ${id}.` }], details: { id, input: clean(text, 500) } };
       }
       const logs = manager.getLogFiles(id); if (!logs) throw new Error(`No process ${id}.`);

@@ -556,6 +556,7 @@ export default function wikiExtension(pi: ExtensionAPI): void {
         empty: query ? 'No wiki pages match this filter.' : 'No wiki pages yet.',
         controls: ['↑↓ select · enter open · / filter', 'esc close'],
         onClose: () => done(undefined),
+        requestRender: () => tui.requestRender(),
         onInput: (data, selected) => {
           if (matchesKey(data, Key.enter) && selected) return void openWikiPage(selected.id, ctx).then(refresh, (error) => ctx.ui.notify((error as Error).message, 'warning'));
           if (data === '/') return void ctx.ui.input('Filter wiki pages', 'Name contains…').then((value) => { if (value !== undefined) { query = cleanLabel(value).toLowerCase(); refresh(); } });

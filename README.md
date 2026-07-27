@@ -25,7 +25,7 @@ Pi keeps npm packages under its own agent directory and installs runtime depende
 Git remains an alternative:
 
 ```sh
-pi install git:github.com/JoulesDotDev/piwi-tui@v1.2.0
+pi install git:github.com/JoulesDotDev/piwi-tui@v1.2.1
 ```
 
 Then open `/settings` in pi and select `piwi-theme` (or `piwi-theme-light`). Manage installs with `pi list`, `pi remove npm:piwi-tui`, and **`pi config`** (enable/disable individual resources — see _Per-project control_).
@@ -118,7 +118,7 @@ All 27 package-owned tools render compact call and result cards: action + target
 | `/guard on\|off\|status` | Control session access safeguards |
 | `/pomodoro [work] [break]\|stop` | Start or stop a focus timer |
 | `/counter [name] [+/−N\|=N\|reset]` | Open the counter dashboard or adjust a global named tally |
-| `/processes [id]` | Browse processes, inspect logs, start/stop, or send input |
+| `/processes [id]` | Browse processes, inspect logs, stop, or send input |
 | `/skills [project\|global]` | Search and open saved skills locally |
 | `/wiki [page]` | Search and open project wiki pages locally |
 | `/pet …` | Open the nook; use `/pet help` for actions |
@@ -162,7 +162,7 @@ All 27 package-owned tools render compact call and result cards: action + target
 
 Per-call `sub_agent.model` and `sub_agent.thinking` override this file. Otherwise helpers inherit the parent session's model and thinking level. Allowed thinking values are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`.
 
-**Processes** — `process` starts session-owned background shell programs, lists them, returns bounded sanitized logs, sends stdin (echoed as `[input]` in logs), and stops them. `/processes` opens a keyboard view for logs, input, starts, and confirmed stops. Processes are never shared or persisted; Pi shuts them down when the session exits. Guard applies the same outside-project shell-path confirmation policy to `process start` as to `bash`.
+**Processes** — `process` starts session-owned background shell programs, lists them, returns bounded sanitized logs, sends stdin (echoed as `[input]` in logs), and stops them. `/processes` opens a keyboard view for logs, input, and confirmed stops. Processes are never shared or persisted; Pi shuts them down when the session exits. Guard applies the same outside-project shell-path confirmation policy to `process start` as to `bash`.
 
 **Work tracking** — an **agenda task** is durable backlog or deadline work managed by `task_*`; a **quick checklist** is the one current execution list managed by `todo` and retained until explicit confirmed clear; a **plan** is a checklist for substantial sequencing, decisions, or review points; a **board card** tracks status on a named kanban board. `recur` is descriptive only and does not create future tasks automatically.
 

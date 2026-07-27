@@ -236,11 +236,25 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   const openMemoryDashboard = async (initialScope: 'all' | Scope, ctx: ExtensionCommandContext): Promise<void> => {
     await ctx.ui.custom<void>((tui, theme, _keys, done) => {
       let scope = initialScope;
-      const facts = (): Array<{ id: string; scope: Scope; fact: string }> => {
+      const collect = (): { facts: Array<{ id: string; scope: Scope; fact: string }>; errors: Array<{ scope: Scope; message: string }> } => {
+        const facts: Array<{ id: string; scope: Scope; fact: string }> = [];
+        const errors: Array<{ scope: Scope; message: string }> = [];
         const scopes: Scope[] = scope === 'all' ? ['project', 'global'] : [scope];
-        return scopes.flatMap((itemScope) => (itemScope === 'project' && !ctx.isProjectTrusted() ? [] : bullets(readScope(itemScope, ctx.cwd)).map((fact, index) => ({ id: `${itemScope}:${index}`, scope: itemScope, fact }))));
+        for (const itemScope of scopes) {
+          if (itemScope === 'project' && !ctx.isProjectTrusted()) continue;
+          try { facts.push(...bullets(readScope(itemScope, ctx.cwd)).map((fact, index) => ({ id: `${itemScope}:${index}`, scope: itemScope, fact }))); }
+          catch (error) { errors.push({ scope: itemScope, message: clean((error as Error).message, 160) || 'unreadable' }); }
+        }
+        return { facts, errors };
       };
-      const rows = (): InteractiveRow[] => facts().map((item) => ({ id: item.id, label: item.fact, marker: item.scope === 'global' ? 'G' : 'P', detail: item.scope === 'global' ? 'Available in every project' : 'This project only' }));
+      const facts = () => collect().facts;
+      const rows = (): InteractiveRow[] => {
+        const result = collect();
+        return [
+          ...result.facts.map((item) => ({ id: item.id, label: item.fact, marker: item.scope === 'global' ? 'G' : 'P', detail: item.scope === 'global' ? 'Available in every project' : 'This project only' })),
+          ...result.errors.map((error) => ({ id: `error:${error.scope}`, label: `Could not read ${error.scope} memory`, marker: '!', detail: error.message, tone: 'error' })),
+        ];
+      };
       let list: PiwiInteractiveList;
       const refresh = (preferred?: string): void => { list.setTitle(`✦ Memory · ${scope} · ${facts().length} facts`); list.setRows(rows(), preferred); tui.requestRender(); };
       list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
@@ -248,6 +262,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         empty: `No ${scope === 'all' ? 'accessible' : scope} memories.`,
         controls: ['↑↓ select · p project · g global · a all', 'd forget selected · esc close'],
         onClose: () => done(undefined),
+        requestRender: () => tui.requestRender(),
         onInput: (data, selected) => {
           if (data === 'p') { if (!ctx.isProjectTrusted()) return void ctx.ui.notify('Trust the project before viewing project memory.', 'warning'); scope = 'project'; return refresh(); }
           if (data === 'g') { scope = 'global'; return refresh(); }

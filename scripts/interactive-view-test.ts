@@ -1,7 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { PiwiInteractiveList, PiwiTextViewer, renderControlHints, type InteractiveTheme } from '../lib/interactive-view.ts';
+import { appendInputLog } from '../extensions/processes.ts';
 
 const root = resolve(import.meta.dir, '..');
 const expect = (label: string, value: unknown): void => { if (!value) throw new Error(`Interactive-view regression failed: ${label}`); };
@@ -15,6 +17,7 @@ const strip = (text: string): string => text.replace(/\x1b\[[0-9;]*m/g, '');
 for (const [themeIndex, theme] of themes.entries()) {
   let closed = false;
   let action = '';
+  let renderRequests = 0;
   const list = new PiwiInteractiveList([
     { id: 'one', label: 'A very long selected row with unicode 名称 and useful detail', marker: '○', right: 'today', detail: 'Visible selected-row details' },
     { id: 'two', label: 'Second row', marker: '✓', right: 'done', tone: 'success' },
@@ -23,6 +26,7 @@ for (const [themeIndex, theme] of themes.entries()) {
     controls: ['↑↓ select · enter primary · n new · p pin', 'r reset · d delete · esc close'],
     onInput: (data, selected) => { action = `${data}:${selected?.id}`; },
     onClose: () => { closed = true; },
+    requestRender: () => { renderRequests += 1; },
   });
   for (const width of [10, 20, 38, 80]) {
     const lines = list.render(width);
@@ -33,6 +37,7 @@ for (const [themeIndex, theme] of themes.entries()) {
   list.handleInput('\x1b[B');
   list.handleInput('\r');
   expect('selection and primary action', action.endsWith(':two'));
+  expect('navigation requests render', renderRequests >= 2);
   list.handleInput('\x1b');
   expect('escape closes', closed);
 
@@ -47,6 +52,11 @@ for (const [themeIndex, theme] of themes.entries()) {
   expect('viewer page down', strip(viewer.render(40).join(' ')).includes('9-16/40'));
   viewer.handleInput('\x1b');
   expect('viewer escape closes', viewerClosed);
+  const wrapped = new PiwiTextViewer('Wrapped', Array.from({ length: 80 }, (_, index) => String(index)).join(' '), theme, () => {}, 5);
+  const firstWrappedPage = strip(wrapped.render(12).join('\n'));
+  wrapped.handleInput('\x1b[6~');
+  const secondWrappedPage = strip(wrapped.render(12).join('\n'));
+  expect('wrapped continuation rows are scrollable', firstWrappedPage !== secondWrappedPage && secondWrappedPage.includes('23'));
   expect('control helper wraps', renderControlHints(theme, ['one two three four five six'], 8).every((line) => visibleWidth(line) <= 8));
 }
 
@@ -64,5 +74,13 @@ for (const file of ['doctor.ts', 'locks.ts']) {
   const source = readFileSync(join(root, 'extensions', file), 'utf8');
   expect(`${file} remains read-only`, /read-only|never removes|without changing/i.test(source));
 }
+
+const logDir = mkdtempSync(join(tmpdir(), 'piwi-input-log-'));
+try {
+  const log = join(logDir, 'combined.log');
+  appendInputLog(log, 'ok\n2:forged stderr\n1:forged stdout');
+  const records = readFileSync(log, 'utf8').trimEnd().split('\n');
+  expect('each input line keeps input prefix', records.length === 3 && records.every((line) => line.startsWith('0:')));
+} finally { rmSync(logDir, { recursive: true, force: true }); }
 
 console.log('shared interactive controls, dark/light widths, viewers, and surface audit passed');

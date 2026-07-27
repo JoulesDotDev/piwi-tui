@@ -493,6 +493,7 @@ export default function tasksExtension(pi: ExtensionAPI): void {
         empty: filter ? `No ${filter} tasks.` : 'No agenda tasks yet — press n to add one.',
         controls: ['↑↓ select · enter/space complete or reopen · n new', 'd delete · esc close'],
         onClose: () => done(undefined),
+        requestRender: () => tui.requestRender(),
         onInput: (data, selected) => {
           if ((matchesKey(data, Key.enter) || matchesKey(data, Key.space)) && selected) return run(async () => agendaLock(ctx.cwd, () => {
             const all = readTasks(ctx.cwd); const task = all.find((item) => item.id === selected.id); if (!task) return;
@@ -544,6 +545,7 @@ export default function tasksExtension(pi: ExtensionAPI): void {
         empty: 'This board has no cards yet — press n to add one.',
         controls: ['↑↓ select · enter move card · n new card', 'd delete card · esc close'],
         onClose: () => done(undefined),
+        requestRender: () => tui.requestRender(),
         onInput: (data, selected) => {
           if (matchesKey(data, Key.enter) && selected) return run(async () => {
             const latest = findBoard(readBoards(ctx.cwd), boardName); if (!latest) return;

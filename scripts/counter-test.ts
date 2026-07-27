@@ -68,7 +68,7 @@ try {
     bg: (_color: string, text: string) => text,
     bold: (text: string) => text,
   };
-  const renderedState: CounterState = { version: 1, counters: Array.from({ length: 15 }, (_, index) => ({ id: `c-${index}`, name: `Counter ${index}`, value: index, pinned: index < 2, createdAt: 1, updatedAt: 1 })) };
+  const renderedState: CounterState = { version: 1, counters: Array.from({ length: 15 }, (_, index) => ({ id: `c-${index}`, name: index === 0 ? '名称✨ counter' : `Counter ${index}`, value: index, pinned: index < 2, createdAt: 1, updatedAt: 1 })) };
   const dashboard = new CounterDashboard(renderedState, theme, {
     adjust: async () => renderedState,
     create: async () => renderedState,

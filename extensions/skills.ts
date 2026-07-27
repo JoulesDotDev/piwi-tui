@@ -207,6 +207,7 @@ export default function skillsExtension(pi: ExtensionAPI): void {
         empty: query ? 'No skills match this filter.' : 'No accessible skills.',
         controls: ['↑↓ select · enter open · / filter', 'esc close'],
         onClose: () => done(undefined),
+        requestRender: () => tui.requestRender(),
         onInput: (data, selected) => {
           if (data === '/') return void ctx.ui.input('Filter skills', 'Name or description contains…').then((value) => { if (value !== undefined) { query = cleanLine(value, 100).toLowerCase(); refresh(); } });
           if (!matchesKey(data, Key.enter) || !selected) return;

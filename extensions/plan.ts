@@ -276,6 +276,7 @@ export default function planExtension(pi: ExtensionAPI): void {
 
   const openPlanDashboard = async (file: string, ctx: ExtensionCommandContext): Promise<void> => {
     await ctx.ui.custom<void>((tui, theme, _keys, done) => {
+      let open = true;
       let markdown = readPlan(ctx.cwd, file);
       const parse = (): { title: string; rows: InteractiveRow[]; done: number; total: number } => {
         const title = clean(markdown.split('\n').find((line) => line.startsWith('# '))?.slice(2) ?? file.replace(/\.md$/, ''), 100);
@@ -288,6 +289,7 @@ export default function planExtension(pi: ExtensionAPI): void {
       let parsed = parse();
       let list: PiwiInteractiveList;
       const refresh = (preferred?: string): void => {
+        if (!open) return;
         markdown = readPlan(ctx.cwd, file); parsed = parse();
         list.setTitle(`◆ ${parsed.title} · ${parsed.done}/${parsed.total}`);
         list.setRows(parsed.rows, preferred); tui.requestRender();
@@ -296,7 +298,8 @@ export default function planExtension(pi: ExtensionAPI): void {
         title: `◆ ${parsed.title} · ${parsed.done}/${parsed.total}`,
         empty: 'This plan has no checklist steps.',
         controls: ['↑↓ select · enter/space complete or reopen', 'esc close'],
-        onClose: () => done(undefined),
+        onClose: () => { open = false; done(undefined); },
+        requestRender: () => tui.requestRender(),
         onInput: (data, selected) => {
           if (!(matchesKey(data, Key.enter) || matchesKey(data, Key.space)) || !selected) return;
           void planLock(ctx.cwd, () => {

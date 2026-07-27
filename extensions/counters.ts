@@ -291,7 +291,8 @@ export class CounterDashboard implements Component {
       const prefix = index === this.selected ? '› ' : '  ';
       const suffix = `${item.pinned ? ' ◆' : ''}  ${item.value.toLocaleString('en-US')}`;
       const nameWidth = Math.max(1, w - visibleWidth(prefix) - visibleWidth(suffix));
-      const row = `${prefix}${truncateToWidth(item.name, nameWidth, '…').padEnd(nameWidth)}${suffix}`;
+      const name = truncateToWidth(item.name, nameWidth, '…');
+      const row = `${prefix}${name}${' '.repeat(Math.max(0, nameWidth - visibleWidth(name)))}${suffix}`;
       lines.push(index === this.selected ? this.theme.bg('selectedBg', this.theme.fg('text', row)) : this.theme.fg(item.pinned ? 'accent' : 'text', row));
     }
     lines.push('');

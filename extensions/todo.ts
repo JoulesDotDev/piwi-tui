@@ -234,6 +234,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
         empty: 'No checklist yet — press n to create one.',
         controls: ['↑↓ select · enter/space toggle · n add', 'r reopen · c clear · esc close'],
         onClose: () => done(undefined),
+        requestRender: () => tui.requestRender(),
         onInput: (data, selected) => {
           if (busy) return;
           if ((matchesKey(data, Key.enter) || matchesKey(data, Key.space)) && selected) {

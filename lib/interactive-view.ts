@@ -20,6 +20,7 @@ export interface InteractiveListOptions {
   maxRows?: number;
   onInput(data: string, selected: InteractiveRow | undefined): void;
   onClose(): void;
+  requestRender?: () => void;
 }
 
 /** Shared Piwi keyboard-list surface. Controls are always visible and wrap rather
@@ -43,6 +44,7 @@ export class PiwiInteractiveList implements Component {
     if (matchesKey(data, Key.up) && this.selected > 0) this.selected -= 1;
     else if (matchesKey(data, Key.down) && this.selected < this.rows.length - 1) this.selected += 1;
     else this.options.onInput(data, this.selectedRow());
+    this.options.requestRender?.();
   }
   render(width: number): string[] {
     const w = Math.max(1, width);
@@ -57,7 +59,9 @@ export class PiwiInteractiveList implements Component {
       const proposedRight = row.right ? `  ${row.right}` : '';
       const right = visibleWidth(prefix) + visibleWidth(marker) + visibleWidth(proposedRight) + 2 <= w ? proposedRight : '';
       const labelWidth = Math.max(1, w - visibleWidth(prefix) - visibleWidth(marker) - visibleWidth(right));
-      const plain = truncateToWidth(`${prefix}${marker}${truncateToWidth(row.label, labelWidth, '…').padEnd(labelWidth)}${right}`, w, '');
+      const label = truncateToWidth(row.label, labelWidth, '…');
+      const paddedLabel = `${label}${' '.repeat(Math.max(0, labelWidth - visibleWidth(label)))}`;
+      const plain = truncateToWidth(`${prefix}${marker}${paddedLabel}${right}`, w, '');
       const colored = this.theme.fg(row.tone ?? 'text', plain);
       lines.push(index === this.selected ? this.theme.bg('selectedBg', colored) : colored);
       if (index === this.selected && row.detail) {
@@ -78,22 +82,25 @@ export function renderControlHints(theme: InteractiveTheme, controls: string[], 
 
 export class PiwiTextViewer implements Component {
   private offset = 0;
+  private totalRows = 0;
   constructor(private readonly title: string, private readonly text: string, private readonly theme: InteractiveTheme, private readonly close: () => void, private readonly maxRows = 18) {}
   handleInput(data: string): void {
-    const lines = this.text.split('\n');
     if (matchesKey(data, Key.escape) || data === 'q') return this.close();
+    const maxOffset = Math.max(0, this.totalRows - this.maxRows);
     if (matchesKey(data, Key.up)) this.offset = Math.max(0, this.offset - 1);
-    else if (matchesKey(data, Key.down)) this.offset = Math.min(Math.max(0, lines.length - 1), this.offset + 1);
+    else if (matchesKey(data, Key.down)) this.offset = Math.min(maxOffset, this.offset + 1);
     else if (matchesKey(data, Key.pageUp)) this.offset = Math.max(0, this.offset - this.maxRows);
-    else if (matchesKey(data, Key.pageDown)) this.offset = Math.min(Math.max(0, lines.length - 1), this.offset + this.maxRows);
+    else if (matchesKey(data, Key.pageDown)) this.offset = Math.min(maxOffset, this.offset + this.maxRows);
     else if (matchesKey(data, Key.home)) this.offset = 0;
-    else if (matchesKey(data, Key.end)) this.offset = Math.max(0, lines.length - this.maxRows);
+    else if (matchesKey(data, Key.end)) this.offset = maxOffset;
   }
   render(width: number): string[] {
     const w = Math.max(1, width);
-    const logical = this.text.split('\n');
-    const body = logical.slice(this.offset, this.offset + this.maxRows).flatMap((line) => wrapTextWithAnsi(this.theme.fg('text', line || ' '), w)).slice(0, this.maxRows);
-    const position = logical.length > this.maxRows ? ` · ${Math.min(logical.length, this.offset + 1)}-${Math.min(logical.length, this.offset + this.maxRows)}/${logical.length}` : '';
+    const visual = this.text.split('\n').flatMap((line) => wrapTextWithAnsi(this.theme.fg('text', line || ' '), w));
+    this.totalRows = visual.length;
+    this.offset = Math.min(this.offset, Math.max(0, this.totalRows - this.maxRows));
+    const body = visual.slice(this.offset, this.offset + this.maxRows);
+    const position = this.totalRows > this.maxRows ? ` · ${this.offset + 1}-${Math.min(this.totalRows, this.offset + this.maxRows)}/${this.totalRows}` : '';
     return [truncateToWidth(this.theme.fg('accent', this.theme.bold(`${this.title}${position}`)), w), '', ...body, '', ...renderControlHints(this.theme, ['↑↓ scroll · pgup/pgdn · home/end · esc back'], w)];
   }
   invalidate(): void {}
