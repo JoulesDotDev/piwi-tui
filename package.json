@@ -1,6 +1,6 @@
 {
   "name": "piwi-tui",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Pi + Wiki: a playful, safe, full-featured TUI extension pack for pi.dev.",
   "keywords": ["pi-package", "pi.dev", "tui", "coding-agent", "piwi"],
   "author": "JoulesDotDev",
@@ -38,8 +38,10 @@
   "dependencies": {
     "@aliou/pi-processes": "^0.9.4",
     "mammoth": "^1.12.0",
-    "officeparser": "^7.3.0",
     "unpdf": "^1.6.2"
+  },
+  "optionalDependencies": {
+    "officeparser": "^7.3.0"
   },
   "bundledDependencies": [
     "@aliou/pi-processes"

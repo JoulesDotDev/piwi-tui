@@ -25,7 +25,7 @@ Pi keeps npm packages under its own agent directory and installs runtime depende
 Git remains an alternative:
 
 ```sh
-pi install git:github.com/JoulesDotDev/piwi-tui@v1.0.0
+pi install git:github.com/JoulesDotDev/piwi-tui@v1.0.1
 ```
 
 Then open `/settings` in pi and select `piwi-theme` (or `piwi-theme-light`). Manage installs with `pi list`, `pi remove npm:piwi-tui`, and **`pi config`** (enable/disable individual resources — see _Per-project control_).
@@ -50,7 +50,17 @@ No build step either way — pi loads the TypeScript directly. Contributors can 
 
 ### Extraction tier — only for `wiki`'s `ingest_source`
 
-`wiki.ts` can pull text out of PDF, DOCX, PPTX, XLSX, ODT, ODP, and ODS documents. That needs three libraries (`unpdf`, `mammoth`, `officeparser`). Pi installs them automatically for npm/Git installs; local-path contributors get them with `npm install` or `bun install`. Everything else in `wiki`—and plain md/txt/csv/json ingest—works without document-extraction libraries.
+`wiki.ts` can pull text out of PDF and DOCX using `unpdf` and `mammoth`. PPTX, XLSX, ODT, ODP, and ODS extraction uses optional `officeparser`; if a restricted npm environment omits it, those formats fail with a focused installation message while the rest of Piwi remains available. Local-path contributors install dependencies with `npm install` or `bun install`. Plain md/txt/csv/json ingest needs no extraction libraries.
+
+### Restricted Windows npm environments
+
+Some company policies block dependency postinstall scripts. They are not required by Piwi. If npm reports `tesseract.js`, `opencollective-postinstall`, or `EPERM rmdir`, install once with scripts disabled:
+
+```powershell
+npm config set ignore-scripts true
+pi install npm:piwi-tui
+npm config delete ignore-scripts
+```
 
 ---
 

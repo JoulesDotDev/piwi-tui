@@ -341,7 +341,7 @@ export default function wikiExtension(pi: ExtensionAPI): void {
           if (signal?.aborted) throw new Error('Source ingestion cancelled.');
         } catch (e) {
           const msg = (e as Error)?.message ?? 'extraction failed';
-          if (/Cannot find|Cannot resolve|ERR_MODULE/.test(msg)) throw new Error('Extraction libraries not installed. In the TUI/ folder run `bun install` (unpdf, mammoth, officeparser).');
+          if (/Cannot find|Cannot resolve|ERR_MODULE/.test(msg)) throw new Error('This format needs an optional extraction library. Reinstall piwi-tui normally, or use npm with scripts disabled on restricted Windows systems.');
           throw new Error(cleanLabel(msg));
         }
         if (text.length > MAX_EXTRACTED_CHARS) throw new Error(`Extracted text exceeds ${MAX_EXTRACTED_CHARS} characters.`);
