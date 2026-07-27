@@ -25,7 +25,7 @@ Pi keeps npm packages under its own agent directory and installs runtime depende
 Git remains an alternative:
 
 ```sh
-pi install git:github.com/JoulesDotDev/piwi-tui@v1.0.3
+pi install git:github.com/JoulesDotDev/piwi-tui@v1.0.4
 ```
 
 Then open `/settings` in pi and select `piwi-theme` (or `piwi-theme-light`). Manage installs with `pi list`, `pi remove npm:piwi-tui`, and **`pi config`** (enable/disable individual resources — see _Per-project control_).

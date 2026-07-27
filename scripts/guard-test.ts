@@ -40,6 +40,8 @@ try {
     ['attached local option path', 'curl -o./local-output http://localhost:3000/health'],
     ['ordinary argument', 'echo local-output'],
     ['simple safe variable', 'target=./inside.txt; cat "$target"'],
+    ['rsync inline exclude pattern', "rsync -a --exclude='extensions/.omc' ./ ./mirror/"],
+    ['rsync separate exclude pattern', "rsync -a --exclude extensions/.omc ./ ./mirror/"],
   ] as const) await expect(label, false, 'bash', { command });
 
   for (const [label, command] of [
@@ -58,6 +60,8 @@ try {
     ['equals external option path', `cp --target-directory=${outside} inside.txt`],
     ['named home path', 'cat ~root/.ssh/id_rsa'],
     ['file URL', 'curl file:///etc/passwd'],
+    ['rsync exclude file', 'rsync -a --exclude-from=/etc/rsync-excludes ./ ./mirror/'],
+    ['rsync outside destination', `rsync -a --exclude='extensions/.omc' ./ ${outside}/`],
   ] as const) await expect(label, true, 'bash', { command });
 
   await expect('process safe command', false, 'process', { action: 'start', command: 'cat ./inside.txt' });

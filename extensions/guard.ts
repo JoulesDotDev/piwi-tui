@@ -108,7 +108,12 @@ function bashEscape(cwd: string, command: string): string | null {
   // this lexical guard's contract; OS sandboxing is required for hard confinement.
   const tokens = shellTokens(command);
   const isAwk = tokens.some((token) => /(?:^|\/)awk$/.test(token));
+  const isRsync = tokens.some((token) => /(?:^|\/)rsync$/.test(token));
+  let skipRsyncExcludePattern = false;
   for (const token of tokens) {
+    if (isRsync && skipRsyncExcludePattern) { skipRsyncExcludePattern = false; continue; }
+    if (isRsync && token === '--exclude') { skipRsyncExcludePattern = true; continue; }
+    if (isRsync && token.startsWith('--exclude=')) continue; // a filter pattern prevents access; --exclude-from still scans
     if (looksLikeRegexLiteral(token)) continue;
     if (/^(?:https?|file):\/\//i.test(token)) return token; // loopback HTTP URLs were stripped first
     let raw = token.replace(/^\d+>/, ''); // shell redirect fd, e.g. 2>/tmp/log
