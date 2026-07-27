@@ -14,10 +14,10 @@ import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, realpathSyn
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 class PlanToolCard {
-  constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
+  constructor(private readonly title: string, private readonly lines: unknown[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
   render(width: number): string[] {
     const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content));
-    box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`◆ ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0));
+    box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`◆ ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', String(line ?? '')))].join('\n'), 0, 0));
     return box.render(width);
   }
   invalidate(): void {}
@@ -158,7 +158,7 @@ export default function planExtension(pi: ExtensionAPI): void {
       name: 'plan',
       label: 'Save a plan',
       renderShell: 'self',
-      renderCall: (args, theme) => new PlanToolCard('Plan · saving', [`${args.title} · ${args.steps.length} steps`], theme),
+      renderCall: (args, theme) => new PlanToolCard('Plan · saving', [`${args.title ?? 'Untitled'} · ${Array.isArray(args.steps) ? args.steps.length : 0} steps`], theme),
       renderResult: (result, _options, theme, context) => {
         const d = result.details as { slug?: string; steps?: number; saved?: boolean } | undefined;
         return new PlanToolCard(context.isError || d?.saved === false ? 'Plan · not saved' : 'Plan · ready', [d?.slug ? `${d.slug} · ${d.steps ?? 0} steps` : 'No plan was saved'], theme);

@@ -24,8 +24,8 @@ import { fileURLToPath } from 'node:url';
  * plain `import(name)` would resolve from the symlink's directory and miss them.
  */
 class WikiToolCard {
-  constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
-  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`⌂ Wiki · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line.length > 500 ? `${line.slice(0, 497)}…` : line))].join('\n'), 0, 0)); return box.render(width); }
+  constructor(private readonly title: string, private readonly lines: unknown[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
+  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`⌂ Wiki · ${this.title}`)), ...this.lines.map((value) => { const line = String(value ?? ''); return this.theme.fg('text', line.length > 500 ? `${line.slice(0, 497)}…` : line); })].join('\n'), 0, 0)); return box.render(width); }
   invalidate(): void {}
 }
 async function loadOptional<T>(name: string): Promise<T> {
@@ -165,7 +165,7 @@ export default function wikiExtension(pi: ExtensionAPI): void {
       name: 'wiki_write',
       label: 'Write wiki page',
       renderShell: 'self',
-      renderCall: (args, theme) => new WikiToolCard('writing', [args.path, `${args.content.length.toLocaleString()} characters`], theme),
+      renderCall: (args, theme) => new WikiToolCard('writing', [args.path, `${typeof args.content === 'string' ? args.content.length.toLocaleString() : 0} characters`], theme),
       renderResult: (result, _options, theme, context) => { const d = result.details as { path?: string; written?: boolean } | undefined; return new WikiToolCard(context.isError ? 'unavailable' : d?.written === false ? 'cancelled' : 'saved', [d?.path ?? 'Wiki page'], theme); },
       description:
         'Create or overwrite a markdown page in .pi/wiki. Use for approved durable project knowledge such ' +
@@ -297,7 +297,7 @@ export default function wikiExtension(pi: ExtensionAPI): void {
       name: 'ingest_source',
       label: 'Ingest source',
       renderShell: 'self',
-      renderCall: (args, theme) => new WikiToolCard('importing source', [args.name ?? basename(args.path), 'Untrusted evidence'], theme),
+      renderCall: (args, theme) => new WikiToolCard('importing source', [args.name ?? (typeof args.path === 'string' ? basename(args.path) : 'Source'), 'Untrusted evidence'], theme),
       renderResult: (result, _options, theme, context) => { const d = result.details as { source?: string; chars?: number } | undefined; return new WikiToolCard(context.isError ? 'import unavailable' : 'source imported', [d?.source ?? 'Source', `${(d?.chars ?? 0).toLocaleString()} characters · untrusted evidence`], theme); },
       description:
         'Extract a local document into .pi/wiki/sources/ for later reading and synthesis. Supports text, ' +

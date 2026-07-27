@@ -18,8 +18,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 class AgentToolCard {
-  constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
-  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`✳ Helpers · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line.length > 500 ? `${line.slice(0, 497)}…` : line))].join('\n'), 0, 0)); return box.render(width); }
+  constructor(private readonly title: string, private readonly lines: unknown[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
+  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`✳ Helpers · ${this.title}`)), ...this.lines.map((value) => { const line = String(value ?? ''); return this.theme.fg('text', line.length > 500 ? `${line.slice(0, 497)}…` : line); })].join('\n'), 0, 0)); return box.render(width); }
   invalidate(): void {}
 }
 const CONCURRENCY = 3;
@@ -450,7 +450,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       name: 'sub_agent',
       label: 'Sub-agents',
       renderShell: 'self',
-      renderCall: (args, theme) => new AgentToolCard('launching', [`${args.tasks.length} helper${args.tasks.length === 1 ? '' : 's'}`, args.tasks.map((task) => task.doing).join(' · ')], theme),
+      renderCall: (args, theme) => { const tasks = Array.isArray(args.tasks) ? args.tasks : []; return new AgentToolCard('launching', [`${tasks.length} helper${tasks.length === 1 ? '' : 's'}`, tasks.map((task) => task?.doing ?? '').join(' · ')], theme); },
       renderResult: (result, _options, theme, context) => { const d = result.details as { background?: boolean; launched?: number; results?: Array<{ error?: string }> } | undefined; const total = d?.launched ?? d?.results?.length ?? 0; const failed = d?.results?.filter((item) => item.error).length ?? 0; return new AgentToolCard(context.isError ? 'unavailable' : d?.background ? 'running in background' : 'finished', [`${total} helper${total === 1 ? '' : 's'}${failed ? ` · ${failed} failed` : ''}`], theme); },
       description:
         'Run up to 8 independent helper tasks, with at most 3 running concurrently. Each helper receives ' +

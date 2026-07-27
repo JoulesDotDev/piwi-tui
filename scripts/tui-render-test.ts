@@ -105,13 +105,19 @@ for (const [name, args] of Object.entries(toolArgs)) {
   }
 }
 
-// Pi renders calls while tool JSON is still streaming; partial web arguments must not crash.
-for (const name of ['web_search', 'web_fetch']) {
+// Pi renders calls while tool JSON is still streaming; no renderer may assume complete arguments.
+const partialCallFailures: string[] = [];
+for (const name of Object.keys(toolArgs)) {
   const tool = tools.get(name)!;
   for (const [themeIndex, renderTheme] of renderThemes.entries()) {
-    assertWidth(`${name}-partial-call-theme${themeIndex}`, tool.renderCall!({}, renderTheme, { isError: false }), widths.filter((width) => width >= 10));
+    try {
+      assertWidth(`${name}-partial-call-theme${themeIndex}`, tool.renderCall!({}, renderTheme, { isError: false }), widths.filter((width) => width >= 10));
+    } catch (error) {
+      partialCallFailures.push(`${name}/theme${themeIndex}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
+if (partialCallFailures.length) throw new Error(`Partial tool-call render failures:\n${partialCallFailures.join('\n')}`);
 
 // Exercise the responsive Pomodoro widget through its public command path.
 await commands.get('pomodoro')?.handler?.('1 0', { ui: fakeUi });

@@ -16,8 +16,8 @@ import { existsSync, linkSync, mkdirSync, readFileSync, realpathSync, renameSync
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 class AgendaToolCard {
-  constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
-  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`◆ ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line.length > 500 ? `${line.slice(0, 497)}…` : line))].join('\n'), 0, 0)); return box.render(width); }
+  constructor(private readonly title: string, private readonly lines: unknown[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
+  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`◆ ${this.title}`)), ...this.lines.map((value) => { const line = String(value ?? ''); return this.theme.fg('text', line.length > 500 ? `${line.slice(0, 497)}…` : line); })].join('\n'), 0, 0)); return box.render(width); }
   invalidate(): void {}
 }
 interface Task {
