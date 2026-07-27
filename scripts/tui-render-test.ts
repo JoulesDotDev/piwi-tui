@@ -105,6 +105,14 @@ for (const [name, args] of Object.entries(toolArgs)) {
   }
 }
 
+// Pi renders calls while tool JSON is still streaming; partial web arguments must not crash.
+for (const name of ['web_search', 'web_fetch']) {
+  const tool = tools.get(name)!;
+  for (const [themeIndex, renderTheme] of renderThemes.entries()) {
+    assertWidth(`${name}-partial-call-theme${themeIndex}`, tool.renderCall!({}, renderTheme, { isError: false }), widths.filter((width) => width >= 10));
+  }
+}
+
 // Exercise the responsive Pomodoro widget through its public command path.
 await commands.get('pomodoro')?.handler?.('1 0', { ui: fakeUi });
 if (!latestWidget) throw new Error('Pomodoro did not create its live widget');
