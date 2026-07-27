@@ -100,9 +100,11 @@ interface TextResponse { ok: boolean; status: number; body: string }
 const POWERSHELL_PROXY_REQUEST = String.raw`
 $ErrorActionPreference = 'Stop'
 $headers = @{}
-(ConvertFrom-Json $env:PIWI_WEB_HEADERS).PSObject.Properties | ForEach-Object { $headers[$_.Name] = [string]$_.Value }
-$contentType = $headers['Content-Type']
-if ($contentType) { $headers.Remove('Content-Type') }
+$contentType = ''
+(ConvertFrom-Json $env:PIWI_WEB_HEADERS).PSObject.Properties | ForEach-Object {
+  if ($_.Name -eq 'content-type') { $contentType = [string]$_.Value }
+  else { $headers[$_.Name] = [string]$_.Value }
+}
 $params = @{
   Uri = $env:PIWI_WEB_URL
   Method = $env:PIWI_WEB_METHOD
@@ -113,16 +115,15 @@ $params = @{
   UseBasicParsing = $true
 }
 if ($contentType) { $params.ContentType = $contentType }
-if ($env:PIWI_WEB_BODY) { $params.Body = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:PIWI_WEB_BODY)) }
+if ($env:PIWI_WEB_BODY) { $params.Body = $env:PIWI_WEB_BODY }
 $response = Invoke-WebRequest @params
-$bytes = [Text.Encoding]::UTF8.GetBytes([string]$response.Content)
-@{ status = [int]$response.StatusCode; body = [Convert]::ToBase64String($bytes) } | ConvertTo-Json -Compress
+Write-Output $response.Content
 `;
 
 function powershellProxyRequest(url: string, init: RequestInit, proxy: WebProxy, maxBytes: number): Promise<TextResponse> {
   return new Promise((resolve, reject) => {
     const headers = Object.fromEntries(new Headers(init.headers).entries());
-    const body = typeof init.body === 'string' ? Buffer.from(init.body, 'utf8').toString('base64') : '';
+    const body = typeof init.body === 'string' ? init.body : '';
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', POWERSHELL_PROXY_REQUEST], {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -156,13 +157,9 @@ function powershellProxyRequest(url: string, init: RequestInit, proxy: WebProxy,
     child.on('close', (code) => {
       if (settled) return;
       if (code !== 0) return finish(new Error(`Windows proxy request failed: ${cleanEvidence(stderr, 1000) || `PowerShell exited ${code}`}`));
-      try {
-        const parsed = JSON.parse(Buffer.concat(stdout).toString('utf8').trim()) as { status?: number; body?: string };
-        const bytes = Buffer.from(parsed.body ?? '', 'base64');
-        if (bytes.length > maxBytes) return finish(new Error(`Response exceeds ${maxBytes} bytes.`));
-        const status = Number(parsed.status ?? 0);
-        finish(undefined, { ok: status >= 200 && status < 300, status, body: bytes.toString('utf8') });
-      } catch (error) { finish(new Error(`Could not parse Windows proxy response: ${(error as Error).message}`)); }
+      const bytes = Buffer.concat(stdout);
+      if (bytes.length > maxBytes) return finish(new Error(`Response exceeds ${maxBytes} bytes.`));
+      finish(undefined, { ok: true, status: 200, body: bytes.toString('utf8') });
     });
     if (init.signal?.aborted) abort();
     else init.signal?.addEventListener('abort', abort, { once: true });
