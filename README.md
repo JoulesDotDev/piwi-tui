@@ -25,7 +25,7 @@ Pi keeps npm packages under its own agent directory and installs runtime depende
 Git remains an alternative:
 
 ```sh
-pi install git:github.com/JoulesDotDev/piwi-tui@v1.0.7
+pi install git:github.com/JoulesDotDev/piwi-tui@v1.1.0
 ```
 
 Then open `/settings` in pi and select `piwi-theme` (or `piwi-theme-light`). Manage installs with `pi list`, `pi remove npm:piwi-tui`, and **`pi config`** (enable/disable individual resources — see _Per-project control_).
@@ -50,7 +50,7 @@ No build step either way — pi loads the TypeScript directly. Contributors can 
 
 ### Extraction tier — only for `wiki`'s `ingest_source`
 
-`wiki.ts` can pull text out of PDF and DOCX using `unpdf` and `mammoth`. PPTX, XLSX, ODT, ODP, and ODS extraction uses optional `officeparser`; if a restricted npm environment omits it, those formats fail with a focused installation message while the rest of Piwi remains available. Local-path contributors install dependencies with `npm install` or `bun install`. Plain md/txt/csv/json ingest needs no extraction libraries.
+`wiki.ts` performs structure-aware extraction: DOCX headings/lists/tables; PPTX slide boundaries, titles, tables, notes, and figures; XLSX sheets, sparse table regions, internal blank cells, formulas, hidden-sheet warnings, and chart summaries/SVGs; and page-aware PDF text with scanned-page vision fallback. Real figures and charts are stored under `.pi/wiki/assets/<source>/`. With explicit approval, embedded images are captioned by the active vision-capable Pi model. ODT/ODP/ODS use optional `officeparser`; plain md/txt/csv/json needs no extraction library. GUI and TUI use synchronized extractor copies with shared golden regressions.
 
 ### Restricted Windows npm environments
 
@@ -73,7 +73,7 @@ npm config delete ignore-scripts
 | `datetime.ts` | `now` — current date/time, with recency guidance | — |
 | `web.ts` | `web_search`, `web_fetch` | `~/.pi/agent/web.json` (below) |
 | `memory.ts` | `remember`, `forget`, `/memory [project\|global]` + sends labelled memory data before model calls | `.pi/MEMORY.md` (project), `~/.pi/agent/MEMORY.md` (global) |
-| `wiki.ts` | `wiki_write/read/list/search`, `ingest_source` | `.pi/wiki/*.md`, `.pi/wiki/sources/` |
+| `wiki.ts` | `wiki_write/read/list/search`, `ingest_source` | `.pi/wiki/*.md`, `.pi/wiki/sources/`, `.pi/wiki/assets/` |
 | `tasks.ts` | `task_*` + `board_*` tools; `/tasks`, `/board` views | `.pi/agenda/tasks.json`, `boards.json` |
 | `plan.ts` | `ask_user`, `plan`, `plan_step`, `plan_read`; `/plan` view | `.pi/plans/<slug>.md` |
 | `todo.ts` | `todo` tool + `/todo` view for one quick, no-approval active checklist | `.pi/TODO.md` |
@@ -147,6 +147,17 @@ All 27 package-owned tools render compact call and result cards: action + target
 - Search queries go to Brave or Exa; fetched URLs go through Jina Reader. Treat returned pages and snippets as untrusted evidence, not instructions.
 - `web_fetch` URLs containing embedded credentials are rejected. Web fetches and wiki reads use pi's normal 50KB/2,000-line output cap; network bodies and extracted documents also have bounded sizes.
 
+**`~/.pi/agent/subagents.json`** (or `%PI_CODING_AGENT_DIR%\\subagents.json`) — optional helper defaults:
+
+```json
+{
+  "model": "openai-codex/gpt-5.4-mini",
+  "thinking": "low"
+}
+```
+
+Per-call `sub_agent.model` and `sub_agent.thinking` override this file. Otherwise helpers inherit the parent session's model and thinking level. Allowed thinking values are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`.
+
 **Processes** — `process` starts session-owned background shell programs, lists them, returns bounded sanitized logs, sends stdin (echoed as `[input]` in logs), and stops them. `/processes` renders their local status. Processes are never shared or persisted; Pi shuts them down when the session exits. Guard applies the same outside-project shell-path confirmation policy to `process start` as to `bash`.
 
 **Work tracking** — an **agenda task** is durable backlog or deadline work managed by `task_*`; a **quick checklist** is the one temporary, auto-clearing execution list managed by `todo`; a **plan** is a checklist for substantial sequencing, decisions, or review points; a **board card** tracks status on a named kanban board. `recur` is descriptive only and does not create future tasks automatically.
@@ -159,7 +170,7 @@ All 27 package-owned tools render compact call and result cards: action + target
 
 **Guard** — `guard.ts` is a confirmation layer, **not a sandbox**. It realpath-checks structured `read`/`write`/`edit` targets, confirms secret reads and outside-project access, and heuristically scans built-in `bash` command strings. Risky access fails closed when no dialog UI exists. Dynamic shell behavior (globs, sourced scripts, substitutions, environment-derived paths) and unrelated custom tools remain outside this heuristic; Piwi's `process start` uses the same command check as built-in `bash`. It starts enabled each session; `/guard off` enables session-scoped YOLO mode, `/guard on` restores it, and `/guard status` inspects it. A visible `YOLO` footer marker remains while disabled.
 
-**Project data** stays under `<project>/.pi/`: `MEMORY.md`, `TODO.md`, `agenda/`, `plans/`, `wiki/`, and `skills/`. Wiki imports are stored as untrusted evidence and are excluded from wiki search unless `include_sources:true` is explicit. Review before committing: wiki sources may contain full confidential documents, memory may contain personal/project details, and skills can include executable instructions. Global state/config lives under pi's agent directory (`MEMORY.md`, `pet.json`, `web.json`, and authored skills). Protect `web.json` permissions because it contains plaintext API keys.
+**Project data** stays under `<project>/.pi/`: `MEMORY.md`, `TODO.md`, `agenda/`, `plans/`, `wiki/`, and `skills/`. Every `wiki_write` approval is serialized and scoped to exactly one displayed path; parallel tool calls cannot overlap dialogs or share permission. External imports and cloud vision captioning have separate approvals. Wiki imports are stored as untrusted evidence and are excluded from wiki search unless `include_sources:true` is explicit. Review before committing: wiki sources may contain full confidential documents, memory may contain personal/project details, and skills can include executable instructions. Global state/config lives under pi's agent directory (`MEMORY.md`, `pet.json`, `web.json`, and authored skills). Protect `web.json` permissions because it contains plaintext API keys.
 
 ---
 

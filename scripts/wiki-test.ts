@@ -42,7 +42,75 @@ try {
   const symlinkCtx = { ...ctx, cwd: second };
   await ingest.execute('symlink', { path: internal, name: 'contained' }, undefined, undefined, symlinkCtx).then(() => { throw new Error('Source-root symlink escape was not denied.'); }, () => undefined);
   if (existsSync(join(outside, 'contained.md'))) throw new Error('Source-root symlink wrote outside the project.');
-  console.log('wiki import regression checks passed');
+
+  // Parallel model tool calls must produce one exact, serialized approval per file.
+  const write = tools.get('wiki_write');
+  let activeDialogs = 0;
+  let maxDialogs = 0;
+  const dialogTitles: string[] = [];
+  const decisions = [true, true, false, true];
+  const writeCtx = {
+    cwd,
+    hasUI: true,
+    isProjectTrusted: () => true,
+    ui: {
+      async confirm(title: string) {
+        activeDialogs++;
+        maxDialogs = Math.max(maxDialogs, activeDialogs);
+        dialogTitles.push(title);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        activeDialogs--;
+        return decisions.shift() ?? true;
+      },
+    },
+  };
+  await Promise.all([
+    write.execute('write-a', { path: 'alpha', content: '# Alpha' }, undefined, undefined, writeCtx),
+    write.execute('write-b', { path: 'beta', content: '# Beta' }, undefined, undefined, writeCtx),
+  ]);
+  if (maxDialogs !== 1) throw new Error('Parallel wiki approvals overlapped.');
+  if (!dialogTitles.includes('Create wiki page alpha.md?') || !dialogTitles.includes('Create wiki page beta.md?')) throw new Error('Wiki approvals did not identify each exact path.');
+  if (!existsSync(join(cwd, '.pi', 'wiki', 'alpha.md')) || !existsSync(join(cwd, '.pi', 'wiki', 'beta.md'))) throw new Error('Approved wiki pages were not written independently.');
+  const [cancelled, approved] = await Promise.all([
+    write.execute('write-c', { path: 'cancelled', content: '# No' }, undefined, undefined, writeCtx),
+    write.execute('write-d', { path: 'after-cancel', content: '# Yes' }, undefined, undefined, writeCtx),
+  ]);
+  if (cancelled.details.written !== false || approved.details.written !== true) throw new Error('A cancelled approval blocked or authorized a later wiki write.');
+  if (existsSync(join(cwd, '.pi', 'wiki', 'cancelled.md')) || !existsSync(join(cwd, '.pi', 'wiki', 'after-cancel.md'))) throw new Error('Per-file wiki approval decisions were not enforced.');
+
+  let releaseSlow!: () => void;
+  const slowGate = new Promise<void>((resolve) => { releaseSlow = resolve; });
+  const queuedTitles: string[] = [];
+  const queuedCtx = {
+    ...writeCtx,
+    ui: {
+      async confirm(title: string) {
+        queuedTitles.push(title);
+        if (title.includes('slow.md')) await slowGate;
+        if (title.includes('throws.md')) throw new Error('dialog closed');
+        return true;
+      },
+    },
+  };
+  const slow = write.execute('slow', { path: 'slow', content: '# Slow' }, undefined, undefined, queuedCtx);
+  const abortController = new AbortController();
+  const aborted = write.execute('aborted', { path: 'aborted', content: '# Aborted' }, abortController.signal, undefined, queuedCtx);
+  const afterAbort = write.execute('after-abort', { path: 'after-abort', content: '# After' }, undefined, undefined, queuedCtx);
+  abortController.abort();
+  releaseSlow();
+  const queueResults = await Promise.race([
+    Promise.allSettled([slow, aborted, afterAbort]),
+    new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('Wiki approval queue deadlocked after abort.')), 1_000)),
+  ]);
+  if (queueResults[1].status !== 'rejected' || queueResults[2].status !== 'fulfilled') throw new Error('Queued abort did not release later wiki approval safely.');
+  if (existsSync(join(cwd, '.pi', 'wiki', 'aborted.md')) || !existsSync(join(cwd, '.pi', 'wiki', 'after-abort.md'))) throw new Error('Aborted queued write was committed or blocked its successor.');
+  await write.execute('throws', { path: 'throws', content: '# Throws' }, undefined, undefined, queuedCtx).then(() => { throw new Error('Thrown dialog unexpectedly wrote.'); }, () => undefined);
+  await Promise.race([
+    write.execute('after-throw', { path: 'after-throw', content: '# After throw' }, undefined, undefined, queuedCtx),
+    new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('Wiki approval queue deadlocked after dialog error.')), 1_000)),
+  ]);
+  if (!existsSync(join(cwd, '.pi', 'wiki', 'after-throw.md'))) throw new Error('Dialog error blocked the next wiki write.');
+  console.log('wiki import and permission regression checks passed');
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

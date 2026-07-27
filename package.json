@@ -1,6 +1,6 @@
 {
   "name": "piwi-tui",
-  "version": "1.0.7",
+  "version": "1.1.0",
   "description": "Pi + Wiki: a playful, safe, full-featured TUI extension pack for pi.dev.",
   "keywords": ["pi-package", "pi.dev", "tui", "coding-agent", "piwi"],
   "author": "JoulesDotDev",
@@ -15,6 +15,7 @@
   },
   "files": [
     "extensions/",
+    "lib/",
     "prompts/",
     "themes/",
     "scripts/",
@@ -37,7 +38,13 @@
   "comment": "Pi installs runtime dependencies automatically for npm and Git package sources. Local-path contributors should run npm install or bun install.",
   "dependencies": {
     "@aliou/pi-processes": "^0.9.4",
+    "@napi-rs/canvas": "^0.1.69",
+    "exceljs": "^4.4.0",
+    "fast-xml-parser": "^5.7.3",
+    "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
     "unpdf": "^1.6.2"
   },
   "optionalDependencies": {

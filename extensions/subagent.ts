@@ -8,12 +8,12 @@
  * the model toward delegation exactly when the conversation is getting heavy.
  * Requires `pi` on PATH (it is if you run pi). Drop-in, no dependencies.
  */
-import { defineTool, truncateHead, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { defineTool, getAgentDir, truncateHead, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { StringEnum } from '@earendil-works/pi-ai';
 import { Box, Text, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 import { spawn } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,6 +24,18 @@ class AgentToolCard {
 }
 const CONCURRENCY = 3;
 const MAX_TASKS = 8;
+const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+type HelperThinking = typeof THINKING_LEVELS[number];
+interface HelperConfig { model?: string; thinking?: HelperThinking }
+export function helperConfig(): HelperConfig {
+  try {
+    const parsed = JSON.parse(readFileSync(join(getAgentDir(), 'subagents.json'), 'utf8')) as HelperConfig;
+    return {
+      model: typeof parsed.model === 'string' && parsed.model.trim() ? parsed.model.trim() : undefined,
+      thinking: THINKING_LEVELS.includes(parsed.thinking as HelperThinking) ? parsed.thinking : undefined,
+    };
+  } catch { return {}; }
+}
 const PER_RESULT_CAP = 12_000; // a helper's report beyond this is truncated — reports should be findings, not dumps
 const HELPER_TIMEOUT = 5 * 60_000; // a helper gets 5 minutes, then a clean per-task error — never a hung turn
 /** Past this fraction of the model's context window, each request carries a
@@ -217,25 +229,32 @@ function acquireSlot(signal: AbortSignal): Promise<() => void> {
   });
 }
 
+export function helperCliArgs(task: string, model?: string, thinking?: HelperThinking): string[] {
+  const args = [
+    '--mode', 'json', '-p', '--no-session', '--no-extensions', '--no-context-files', '--no-skills',
+    '--tools', 'read,grep,find,ls,web_search,web_fetch,now',
+  ];
+  for (const extension of helperExtensions()) args.push('-e', extension);
+  args.push('--append-system-prompt', WORKER_PROMPT);
+  if (model) args.push('--model', model);
+  if (thinking) args.push('--thinking', thinking);
+  args.push(task);
+  return args;
+}
+
 /** Run one helper to completion, streaming its activity via onActivity. */
 function runHelper(
   task: string,
   cwd: string,
   model: string | undefined,
+  thinking: HelperThinking | undefined,
   signal: AbortSignal | undefined,
   onActivity: (line: string) => void,
   onSpawn?: (stop: () => void) => void,
 ): Promise<SubResult> {
-  // --no-extensions disables DISCOVERY; explicit -e paths still load (the same
-  // combination the GUI uses) — helpers get built-ins + web + now, nothing else.
-  const args = [
-    '--mode', 'json', '-p', '--no-session', '--no-extensions', '--no-context-files', '--no-skills',
-    '--tools', 'read,grep,find,ls,web_search,web_fetch,now',
-  ];
-  for (const e of helperExtensions()) args.push('-e', e);
-  args.push('--append-system-prompt', WORKER_PROMPT);
-  if (model) args.push('--model', model);
-  args.push(task);
+  // --no-extensions disables discovery; explicit -e paths still load, so helpers
+  // get built-ins + the bounded web/time helpers and nothing recursive.
+  const args = helperCliArgs(task, model, thinking);
 
   return new Promise<SubResult>((resolve) => {
     const proc = spawn('pi', args, {
@@ -471,7 +490,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
           }),
           { description: 'One entry per helper.', minItems: 1, maxItems: MAX_TASKS },
         ),
-        model: Type.Optional(Type.String({ description: "Model pattern for the helpers; omit to use this session's model." })),
+        model: Type.Optional(Type.String({ description: "Model pattern for helpers; overrides subagents.json and the session model." })),
+        thinking: Type.Optional(StringEnum(THINKING_LEVELS, { description: 'Helper thinking effort; overrides subagents.json and the session level.' })),
         wait: Type.Optional(
           Type.Boolean({
             description:
@@ -526,7 +546,9 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         // provider the user never logged into. Provider-qualified ("provider/id"),
         // since a bare id can match another provider's catalog entry.
         const inherited = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-        const model = params.model ?? inherited;
+        const configured = helperConfig();
+        const model = params.model?.trim() || configured.model || inherited;
+        const thinking = params.thinking ?? configured.thinking ?? ctx.thinkingLevel;
 
         const runAll = (
           sig: AbortSignal,
@@ -553,6 +575,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
                 t.task,
                 ctx.cwd,
                 model,
+                thinking,
                 sig,
                 (line) => {
                   activity[i] = line;

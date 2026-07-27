@@ -34,6 +34,12 @@ try {
   const petLockTest = spawnSync('bun', [join(root, 'scripts', 'pet-lock-test.ts')], { cwd: root, encoding: 'utf8', timeout: 30_000 });
   if (petLockTest.error) throw petLockTest.error;
   if (petLockTest.status !== 0) throw new Error(`Pet lock regression check failed (${petLockTest.status}):\n${petLockTest.stderr}`);
+  const extractionTest = spawnSync('bun', [join(root, 'scripts', 'extraction-test.ts')], { cwd: root, encoding: 'utf8', timeout: 60_000 });
+  if (extractionTest.error) throw extractionTest.error;
+  if (extractionTest.status !== 0) throw new Error(`Document extraction regression check failed (${extractionTest.status}):\n${extractionTest.stderr}`);
+  const subagentConfigTest = spawnSync('bun', [join(root, 'scripts', 'subagent-config-test.ts')], { cwd: root, encoding: 'utf8', timeout: 30_000 });
+  if (subagentConfigTest.error) throw subagentConfigTest.error;
+  if (subagentConfigTest.status !== 0) throw new Error(`Subagent configuration regression check failed (${subagentConfigTest.status}):\n${subagentConfigTest.stderr}`);
 
   const dark = JSON.parse(readFileSync(join(root, 'themes', 'piwi-theme.json'), 'utf8')) as { name: string; vars?: Record<string, string | number>; colors: Record<string, string | number>; export?: { pageBg?: string } };
   const light = JSON.parse(readFileSync(join(root, 'themes', 'piwi-theme-light.json'), 'utf8')) as { name: string; vars?: Record<string, string | number>; colors: Record<string, string | number>; export?: { pageBg?: string } };
@@ -76,7 +82,7 @@ try {
   }
 
   JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  console.log(`check passed: ${extensions.length} extensions build/load; renderer widths/completions; guard paths; wiki imports; pet locks; ${darkKeys.length} theme colors + contrast match schema`);
+  console.log(`check passed: ${extensions.length} extensions build/load; renderer widths/completions; guard paths; wiki imports; document extraction; helper config; pet locks; ${darkKeys.length} theme colors + contrast match schema`);
 } finally {
   rmSync(outdir, { recursive: true, force: true });
 }
