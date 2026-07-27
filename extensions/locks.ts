@@ -38,8 +38,8 @@ function ownerState(token: string): { text: string; tone: Tone } {
 }
 function candidates(lock: string): number {
   try {
-    const prefix = `${basename(lock)}.`;
-    return readdirSync(dirname(lock)).filter((name) => name.startsWith(prefix) && name.endsWith('.candidate')).length;
+    const prefix = `${basename(lock)}.candidate`;
+    return readdirSync(dirname(lock)).filter((name) => name.startsWith(prefix)).length;
   } catch { return 0; }
 }
 function inspect(target: LockTarget): Row[] {
@@ -50,7 +50,7 @@ function inspect(target: LockTarget): Row[] {
   try {
     const stat = lstatSync(target.file);
     if (stat.isSymbolicLink()) return [{ text: `⚠ ${target.label} · unsafe symlinked lock path`, tone: 'error' }];
-    const ownerPath = target.ownerFile ?? target.file;
+    const ownerPath = target.ownerFile ?? (stat.isDirectory() ? join(target.file, 'owner') : target.file);
     const token = clean(readFileSync(ownerPath, 'utf8'), 160);
     const state = ownerState(token);
     const kind = stat.isDirectory() ? 'directory lock' : 'lock';
@@ -72,7 +72,7 @@ function collect(cwd: string): LocksData {
     { label: 'Plans', file: join(projectPi, 'plans', '.lock') },
     { label: 'Quick checklist', file: join(projectPi, 'TODO.md.lock') },
     { label: 'Global memory', file: join(agent, 'MEMORY.md.lock') },
-    { label: 'Pet', file: join(agent, 'pet.json.lock'), ownerFile: join(agent, 'pet.json.lock', 'owner') },
+    { label: 'Pet', file: join(agent, 'pet.json.lock') },
   ];
   const rows: Row[] = [{ text: 'Lock check', tone: 'accent', bold: true }];
   for (const target of targets) rows.push(...inspect(target));

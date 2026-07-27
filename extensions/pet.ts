@@ -14,7 +14,9 @@ import type { AssistantMessage } from '@earendil-works/pi-ai';
 import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { matchesKey, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import {
+  closeSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -26,7 +28,7 @@ import { dirname, join } from 'node:path';
 
 const WIDGET_KEY = 'pi-pet';
 const STATE_FILE = join(getAgentDir(), 'pet.json');
-const LOCK_DIR = `${STATE_FILE}.lock`;
+const LOCK_FILE = `${STATE_FILE}.lock`;
 const STATE_VERSION = 2;
 const OUTPUT_PER_SPARK = 500;
 const OUTPUT_PER_XP = 1000;
@@ -476,38 +478,41 @@ function writeState(state: PetState): void {
 async function withGlobalState<T>(mutate: (state: PetState) => T): Promise<{ state: PetState; result: T }> {
   mkdirSync(dirname(STATE_FILE), { recursive: true });
   const owner = `${process.pid}:${randomUUID()}`;
-  const ownerFile = join(LOCK_DIR, 'owner');
-  const candidate = `${LOCK_DIR}.candidate-${randomUUID()}`;
-  mkdirSync(candidate);
-  writeFileSync(join(candidate, 'owner'), owner, { encoding: 'utf8', mode: 0o600 });
   let locked = false;
   for (let attempt = 0; attempt < 400; attempt += 1) {
+    let fd: number | undefined;
     try {
-      renameSync(candidate, LOCK_DIR); // owner identity exists before atomic acquisition
+      // Exclusive file creation is atomic across supported platforms and avoids
+      // Windows policies that reject atomic directory renames.
+      fd = openSync(LOCK_FILE, 'wx', 0o600);
+      writeFileSync(fd, owner, { encoding: 'utf8' });
+      closeSync(fd);
+      fd = undefined;
       locked = true;
       break;
     } catch (error) {
+      if (fd !== undefined) {
+        try { closeSync(fd); } catch { /* already closed */ }
+        try { rmSync(LOCK_FILE, { force: true }); } catch { /* preserve original error */ }
+      }
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'EEXIST' && code !== 'ENOTEMPTY') throw error;
+      if (code !== 'EEXIST') throw error;
       // Never auto-break a stale global lock: unsafe recovery could corrupt progression.
       await sleep(25 + Math.floor(Math.random() * 20));
     }
   }
-  if (!locked) {
-    rmSync(candidate, { recursive: true, force: true });
-    throw new Error('Another Pi session is saving your pet. Try again in a moment; if it persists after a crash, run /locks.');
-  }
+  if (!locked) throw new Error('Another Pi session is saving your pet. Try again in a moment; if it persists after a crash, run /locks.');
   try {
     const state = readState();
     const result = mutate(state);
     reconcileProgress(state);
-    if (readFileSync(ownerFile, 'utf8') !== owner) throw new Error('Lost the global pet state lock; update was not saved.');
+    if (readFileSync(LOCK_FILE, 'utf8') !== owner) throw new Error('Lost the global pet state lock; update was not saved.');
     state.updatedAt = now();
     writeState(state);
     return { state, result };
   } finally {
     try {
-      if (readFileSync(ownerFile, 'utf8') === owner) rmSync(LOCK_DIR, { recursive: true, force: true });
+      if (readFileSync(LOCK_FILE, 'utf8') === owner) rmSync(LOCK_FILE, { force: true });
     } catch { /* lock was recovered or already released */ }
   }
 }

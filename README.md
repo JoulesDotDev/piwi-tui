@@ -25,7 +25,7 @@ Pi keeps npm packages under its own agent directory and installs runtime depende
 Git remains an alternative:
 
 ```sh
-pi install git:github.com/JoulesDotDev/piwi-tui@v1.0.4
+pi install git:github.com/JoulesDotDev/piwi-tui@v1.0.5
 ```
 
 Then open `/settings` in pi and select `piwi-theme` (or `piwi-theme-light`). Manage installs with `pi list`, `pi remove npm:piwi-tui`, and **`pi config`** (enable/disable individual resources — see _Per-project control_).
@@ -126,7 +126,7 @@ All 27 package-owned tools render compact call and result cards: action + target
 
 ## Configuration reference
 
-**`~/.pi/agent/web.json`** — search engine + API keys for `web.ts`:
+**`~/.pi/agent/web.json`** (or `%PI_CODING_AGENT_DIR%\web.json` on a relocated Windows setup) — search engine + API keys for `web.ts`:
 
 ```json
 {
@@ -138,8 +138,9 @@ All 27 package-owned tools render compact call and result cards: action + target
 
 - `search` picks the `web_search` engine: `"brave"` or `"exa"`. `web_fetch` uses Jina Reader (`jina` key optional — it works keyless at a lower rate limit).
 - Env vars are a fallback: `BRAVE_API_KEY`, `EXA_API_KEY`, `JINA_API_KEY`.
-- `proxy.https` / `proxy.http` apply **only** to `web_search` and `web_fetch`, explicitly overriding `HTTPS_PROXY`, then `HTTP_PROXY`. Bun also honors those environment variables by default; this setting makes both web routes unambiguous.
-- Search queries go to Brave or Exa; fetched URLs go through Jina Reader. URLs containing embedded credentials are rejected. Treat returned pages and snippets as untrusted evidence, not instructions.
+- `proxy.https` / `proxy.http` apply **only** to `web_search` and `web_fetch`, explicitly overriding `HTTPS_PROXY`, then `HTTP_PROXY`. Pi runs on Bun, and the extension passes Bun's documented `fetch(..., { proxy })` option for every search and fetch request.
+- Corporate proxy configuration must be an HTTP(S) proxy URL, not a PAC file. URL-encode usernames/passwords if credentials are embedded in the proxy URL. TLS-inspecting proxies may also require the company root CA to be trusted by the Pi/Bun process.
+- Search queries go to Brave or Exa; fetched URLs go through Jina Reader. Treat returned pages and snippets as untrusted evidence, not instructions.
 - `web_fetch` URLs containing embedded credentials are rejected. Web fetches and wiki reads use pi's normal 50KB/2,000-line output cap; network bodies and extracted documents also have bounded sizes.
 
 **Processes** — `process` starts session-owned background shell programs, lists them, returns bounded sanitized logs, sends stdin (echoed as `[input]` in logs), and stops them. `/processes` renders their local status. Processes are never shared or persisted; Pi shuts them down when the session exits. Guard applies the same outside-project shell-path confirmation policy to `process start` as to `bash`.
