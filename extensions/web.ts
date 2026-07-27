@@ -13,6 +13,7 @@
  * optional (it only raises rate limits). Drop-in, no dependencies.
  */
 import { defineTool, getAgentDir, truncateHead, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import { Box, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -47,6 +48,19 @@ type ProxyFetchInit = RequestInit & { proxy?: string };
 const proxiedFetch = (url: string, init: RequestInit, proxy: string | undefined): Promise<Response> =>
   fetch(url, { ...init, ...(proxy ? { proxy } : {}) } as ProxyFetchInit);
 
+const MAX_TRANSCRIPT_CHARS = 12_000;
+const clipTranscript = (text: string): { text: string; truncated: boolean } => text.length > MAX_TRANSCRIPT_CHARS
+  ? { text: `${text.slice(0, MAX_TRANSCRIPT_CHARS)}\n\n[Web evidence truncated for a compact transcript.]`, truncated: true }
+  : { text, truncated: false };
+class WebCard {
+  constructor(private readonly title: string, private readonly detail: string, private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
+  render(width: number): string[] {
+    const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content));
+    box.addChild(new Text(`${this.theme.fg('accent', this.theme.bold(this.title))}\n${this.theme.fg('text', cleanEvidence(this.detail, 500))}`, 0, 0));
+    return box.render(width);
+  }
+  invalidate(): void {}
+}
 const ANSI = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)?)/g;
 const UNSAFE_DISPLAY = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g;
 const cleanEvidence = (s: string, limit: number): string => Array.from(s.replace(ANSI, '').replace(UNSAFE_DISPLAY, ' ').replace(/\s+/g, ' ').trim()).slice(0, limit).join('');
@@ -112,6 +126,13 @@ export default function webExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'web_search',
       label: 'Web search',
+      renderShell: 'self',
+      renderCall: (args, theme) => new WebCard('⌕ Web search', args.query, theme),
+      renderResult: (result, _options, theme, context) => {
+        const details = result.details as { engine?: string; results?: unknown[] } | undefined;
+        const detail = context.isError ? 'Search failed.' : `${details?.results?.length ?? 0} results · ${details?.engine ?? 'web'} · evidence kept compact`;
+        return new WebCard(context.isError ? '⌕ Web search · unavailable' : '⌕ Web search · complete', detail, theme);
+      },
       description:
         'Search the live web and return ranked titles, URLs, and snippets. Fetch promising results before ' +
         'relying on their contents.',
@@ -143,8 +164,9 @@ export default function webExtension(pi: ExtensionAPI): void {
           `Web results for "${query}" via ${engine} (use web_fetch to read page content):\n\n` +
           results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ''}`).join('\n\n');
         const clipped = truncateHead(text);
-        const note = clipped.truncated ? `\n\n[Search output truncated: ${clipped.outputLines}/${clipped.totalLines} lines.]` : '';
-        return { content: [{ type: 'text', text: untrustedBlock('web-search', engine, clipped.content + note) }], details: { engine, results: results.map(({ title, url }) => ({ title, url })), truncated: clipped.truncated, untrusted: true } };
+        const compact = clipTranscript(clipped.content);
+        const note = clipped.truncated || compact.truncated ? `\n\n[Search output truncated for a compact transcript.]` : '';
+        return { content: [{ type: 'text', text: untrustedBlock('web-search', engine, compact.text + note) }], details: { engine, results: results.map(({ title, url }) => ({ title, url })), truncated: clipped.truncated || compact.truncated, untrusted: true } };
       },
     }),
   );
@@ -153,6 +175,16 @@ export default function webExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'web_fetch',
       label: 'Fetch web page',
+      renderShell: 'self',
+      renderCall: (args, theme) => {
+        try { const url = new URL(args.url); return new WebCard('↗ Web fetch', `${url.host}${url.pathname}`, theme); }
+        catch { return new WebCard('↗ Web fetch', args.url, theme); }
+      },
+      renderResult: (result, _options, theme, context) => {
+        const details = result.details as { url?: string; chars?: number; truncated?: boolean } | undefined;
+        const detail = context.isError ? 'Fetch failed.' : `${details?.chars?.toLocaleString() ?? 0} source characters${details?.truncated ? ' · compacted' : ''}`;
+        return new WebCard(context.isError ? '↗ Web fetch · unavailable' : '↗ Web fetch · complete', detail, theme);
+      },
       description:
         'Send an HTTP(S) page or online PDF to Jina Reader and return extracted markdown. Large responses ' +
         'or tool output may be truncated. Do not use URLs containing secrets or credentials.',
@@ -172,8 +204,9 @@ export default function webExtension(pi: ExtensionAPI): void {
         const md = (await limitedText(res)).trim();
         if (!md) throw new Error(`No readable content at ${target}.`);
         const clipped = truncateHead(md);
-        const note = clipped.truncated ? `\n\n[Page truncated: ${clipped.outputLines}/${clipped.totalLines} lines, ${clipped.outputBytes}/${clipped.totalBytes} bytes.]` : '';
-        return { content: [{ type: 'text', text: untrustedBlock('web-page', target, clipped.content + note) }], details: { url: target, chars: md.length, truncated: clipped.truncated, untrusted: true } };
+        const compact = clipTranscript(clipped.content);
+        const note = clipped.truncated || compact.truncated ? `\n\n[Page truncated for a compact transcript.]` : '';
+        return { content: [{ type: 'text', text: untrustedBlock('web-page', target, compact.text + note) }], details: { url: target, chars: md.length, truncated: clipped.truncated || compact.truncated, untrusted: true } };
       },
     }),
   );
