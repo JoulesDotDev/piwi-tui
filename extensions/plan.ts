@@ -8,11 +8,20 @@
  * dialogs. Drop-in, no dependencies.
  */
 import { CONFIG_DIR_NAME, defineTool, truncateHead, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { Text } from '@earendil-works/pi-tui';
+import { Box, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
+class PlanToolCard {
+  constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
+  render(width: number): string[] {
+    const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content));
+    box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`◆ ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0));
+    return box.render(width);
+  }
+  invalidate(): void {}
+}
 function canonical(path: string): string {
   const abs = resolve(path);
   let existing = abs;
@@ -109,6 +118,9 @@ export default function planExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'ask_user',
       label: 'Ask the user',
+      renderShell: 'self',
+      renderCall: (args, theme) => new PlanToolCard('Decision · asking', [args.question, args.choices?.length ? `${args.choices.length} suggested choices` : 'Free response'], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as { answer?: string; cancelled?: boolean; asked?: boolean } | undefined; return new PlanToolCard(context.isError ? 'Decision · unavailable' : d?.cancelled || d?.asked === false ? 'Decision · dismissed' : 'Decision · answered', [d?.answer ?? 'No answer'], theme); },
       description:
         'Ask one brief question when a user decision is required to continue or would materially change ' +
         'scope, architecture, cost, risk, or tradeoffs. Do not ask for facts you can verify or minor details ' +
@@ -145,6 +157,12 @@ export default function planExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'plan',
       label: 'Save a plan',
+      renderShell: 'self',
+      renderCall: (args, theme) => new PlanToolCard('Plan · saving', [`${args.title} · ${args.steps.length} steps`], theme),
+      renderResult: (result, _options, theme, context) => {
+        const d = result.details as { slug?: string; steps?: number; saved?: boolean } | undefined;
+        return new PlanToolCard(context.isError || d?.saved === false ? 'Plan · not saved' : 'Plan · ready', [d?.slug ? `${d.slug} · ${d.steps ?? 0} steps` : 'No plan was saved'], theme);
+      },
       description:
         'Save or replace a markdown checklist in .pi/plans/ for substantial multi-step work. Provide a title ' +
         'and ordered steps. Interactive sessions request approval before saving; non-interactive sessions ' +
@@ -181,6 +199,12 @@ export default function planExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'plan_step',
       label: 'Check plan step',
+      renderShell: 'self',
+      renderCall: (args, theme) => new PlanToolCard(`Plan · ${args.done === false ? 'reopening' : 'completing'} step ${args.step}`, [args.slug ?? 'Active plan'], theme),
+      renderResult: (result, _options, theme, context) => {
+        const d = result.details as { file?: string; checked?: number; total?: number; stepText?: string; done?: boolean } | undefined;
+        return new PlanToolCard(context.isError ? 'Plan · unavailable' : `Plan · ${d?.done === false ? 'reopened' : 'completed'}`, [d?.stepText ?? d?.file ?? 'Plan step', `Progress · ${d?.checked ?? 0}/${d?.total ?? 0}`], theme);
+      },
       description:
         'Mark a plan step done or not-done by its number (1-based). Omit slug to use the active (most ' +
         'recent) plan. Do this as you complete each step so the checklist stays honest.',
@@ -203,7 +227,7 @@ export default function planExtension(pi: ExtensionAPI): void {
           atomicWrite(join(plansDir(ctx.cwd), file), lines.join('\n'));
           const total = indexes.length;
           const checked = lines.filter((line) => /^- \[x\] /i.test(line.trim())).length;
-          return { content: [{ type: 'text' as const, text: `Step ${params.step} ${done ? 'done' : 'reopened'} in ${file} (${checked}/${total} complete).` }], details: { file, checked, total } };
+          return { content: [{ type: 'text' as const, text: `Step ${params.step} ${done ? 'done' : 'reopened'} in ${file} (${checked}/${total} complete).` }], details: { file, checked, total, done, stepText: lines[target].replace(/^- \[[ x]\] /i, '') } };
         });
       },
     }),
@@ -213,6 +237,9 @@ export default function planExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'plan_read',
       label: 'Read plan',
+      renderShell: 'self',
+      renderCall: (args, theme) => new PlanToolCard('Plan · reading', [args.slug ?? 'Active plan'], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as { file?: string; truncated?: boolean; plans?: string[] } | undefined; return new PlanToolCard(context.isError ? 'Plan · unavailable' : 'Plan · ready', [d?.file ?? `${d?.plans?.length ?? 0} available plans`, d?.truncated ? 'Preview truncated' : ''], theme); },
       description: 'Read the active plan (or a named slug) — its title, steps, and which are done. Omit slug for the most recent.',
       parameters: Type.Object({ slug: Type.Optional(Type.String({ description: 'Plan slug; omit for the active plan.' })) }),
       async execute(_id, params, _signal, _onUpdate, ctx) {

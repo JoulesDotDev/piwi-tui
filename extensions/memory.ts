@@ -13,7 +13,7 @@ import {
   type ExtensionAPI,
 } from '@earendil-works/pi-coding-agent';
 import { StringEnum } from '@earendil-works/pi-ai';
-import { Text } from '@earendil-works/pi-tui';
+import { Box, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 import {
   existsSync, linkSync, mkdirSync, readFileSync, realpathSync,
@@ -21,6 +21,11 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
+class MemoryToolCard {
+  constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
+  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`✦ Memory · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0)); return box.render(width); }
+  invalidate(): void {}
+}
 const SOFT_LIMIT = 100;
 const MAX_FACT_CHARS = 500;
 const MAX_CONTEXT_CHARS = 24_000;
@@ -124,6 +129,9 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'remember',
       label: 'Remember',
+      renderShell: 'self',
+      renderCall: (args, theme) => new MemoryToolCard('saving', [`${args.scope ?? 'project'} · ${args.fact}`], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as { scope?: string; added?: boolean; count?: number } | undefined; return new MemoryToolCard(context.isError ? 'unavailable' : d?.added ? 'saved' : 'already known', [`${d?.scope ?? 'project'} memory${d?.count ? ` · ${d.count} facts` : ''}`], theme); },
       description:
         'Save one durable, non-sensitive fact to project memory by default, or to global memory for ' +
         'cross-project preferences and conventions. Every write requires confirmation. Do not store ' +
@@ -166,6 +174,9 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'forget',
       label: 'Forget',
+      renderShell: 'self',
+      renderCall: (args, theme) => new MemoryToolCard('forgetting', [`Match · ${args.match}`], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as { removed?: string[] } | undefined; return new MemoryToolCard(context.isError ? 'unavailable' : 'updated', [`${d?.removed?.length ?? 0} fact${d?.removed?.length === 1 ? '' : 's'} removed`], theme); },
       description:
         'Delete memory entries containing a case-insensitive substring. Scope defaults to project; global ' +
         'and all require confirmation. Use when a fact is stale, wrong, or being replaced.',

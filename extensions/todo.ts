@@ -8,7 +8,7 @@
  */
 import { CONFIG_DIR_NAME, defineTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { StringEnum } from '@earendil-works/pi-ai';
-import { Text } from '@earendil-works/pi-tui';
+import { Box, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 import { existsSync, linkSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -17,6 +17,15 @@ interface TodoItem { text: string; done: boolean }
 interface TodoList { title: string; items: TodoItem[] }
 interface TodoView { title: string; items: TodoItem[]; empty?: boolean }
 
+class TodoToolCard {
+  constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
+  render(width: number): string[] {
+    const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content));
+    box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`☑ Todo · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0));
+    return box.render(width);
+  }
+  invalidate(): void {}
+}
 const fileFor = (cwd: string): string => join(cwd, CONFIG_DIR_NAME, 'TODO.md');
 function canonical(path: string): string {
   const abs = resolve(path);
@@ -102,6 +111,15 @@ export default function todoExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'todo',
       label: 'Todo',
+      renderShell: 'self',
+      renderCall: (args, theme) => new TodoToolCard(args.action === 'step' ? `updating step ${args.step ?? '?'}` : args.action, [args.title ?? (args.steps?.length ? `${args.steps.length} checklist steps` : 'Current checklist')], theme),
+      renderResult: (result, _options, theme, context) => {
+        const d = result.details as { todo?: TodoList; cleared?: boolean; completed?: boolean } | undefined;
+        const todo = d?.todo;
+        const done = todo?.items.filter((item) => item.done).length ?? 0;
+        const title = d?.completed ? 'complete' : d?.cleared ? 'cleared' : todo ? 'updated' : 'status';
+        return new TodoToolCard(context.isError ? 'unavailable' : title, todo ? [todo.title, `${done}/${todo.items.length} complete`] : ['No active checklist'], theme);
+      },
       description:
         'Manage the ONE disposable current-work checklist: immediate execution steps for this active run. ' +
         'write replaces it; step updates an item; completion auto-deletes .pi/TODO.md. Never use todo for ' +

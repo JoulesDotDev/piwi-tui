@@ -11,9 +11,15 @@
 import { CONFIG_DIR_NAME, defineTool, getAgentDir, truncateHead, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { StringEnum } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
+import { Box, Text } from '@earendil-works/pi-tui';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
+class SkillToolCard {
+  constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
+  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`◇ Skills · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0)); return box.render(width); }
+  invalidate(): void {}
+}
 function canonical(path: string): string {
   const abs = resolve(path);
   let existing = abs;
@@ -89,6 +95,9 @@ export default function skillsExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'list_skills',
       label: 'List skills',
+      renderShell: 'self',
+      renderCall: (_args, theme) => new SkillToolCard('listing', ['Project + global'], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as { project?: unknown[]; global?: unknown[]; truncated?: boolean } | undefined; return new SkillToolCard(context.isError ? 'unavailable' : 'ready', [`${d?.project?.length ?? 0} project · ${d?.global?.length ?? 0} global`, d?.truncated ? 'List truncated' : ''], theme); },
       description:
         'List skills managed in ~/.pi/agent/skills and .pi/skills. Project skills are omitted when the ' +
         'project is untrusted. This excludes skills discovered from packages, CLI options, ancestor directories, or .agents.',
@@ -113,6 +122,9 @@ export default function skillsExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'create_skill',
       label: 'Create skill',
+      renderShell: 'self',
+      renderCall: (args, theme) => new SkillToolCard('creating', [args.name, `${args.scope ?? 'project'} · ${args.files?.length ?? 0} helper files`], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as { scope?: string; slug?: string; files?: string[]; created?: boolean } | undefined; return new SkillToolCard(context.isError ? 'unavailable' : d?.created === false ? 'cancelled' : 'created', [d?.slug ?? 'Skill', `${d?.scope ?? 'project'} · ${d?.files?.length ?? 0} files`], theme); },
       description:
         'Create a reusable markdown skill. project (default) writes .pi/skills and requires a trusted ' +
         'project; global writes ~/.pi/agent/skills. Every creation requires interactive approval. Keep content focused ' +

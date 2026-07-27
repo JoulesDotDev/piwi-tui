@@ -10,13 +10,18 @@
  */
 import { defineTool, truncateHead, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { StringEnum } from '@earendil-works/pi-ai';
-import { Text, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import { Box, Text, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 import { spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+class AgentToolCard {
+  constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
+  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`✳ Helpers · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line.length > 500 ? `${line.slice(0, 497)}…` : line))].join('\n'), 0, 0)); return box.render(width); }
+  invalidate(): void {}
+}
 const CONCURRENCY = 3;
 const MAX_TASKS = 8;
 const PER_RESULT_CAP = 12_000; // a helper's report beyond this is truncated — reports should be findings, not dumps
@@ -444,6 +449,9 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'sub_agent',
       label: 'Sub-agents',
+      renderShell: 'self',
+      renderCall: (args, theme) => new AgentToolCard('launching', [`${args.tasks.length} helper${args.tasks.length === 1 ? '' : 's'}`, args.tasks.map((task) => task.doing).join(' · ')], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as { background?: boolean; launched?: number; results?: Array<{ error?: string }> } | undefined; const total = d?.launched ?? d?.results?.length ?? 0; const failed = d?.results?.filter((item) => item.error).length ?? 0; return new AgentToolCard(context.isError ? 'unavailable' : d?.background ? 'running in background' : 'finished', [`${total} helper${total === 1 ? '' : 's'}${failed ? ` · ${failed} failed` : ''}`], theme); },
       description:
         'Run up to 8 independent helper tasks, with at most 3 running concurrently. Each helper receives ' +
         'only its self-contained task and returns a concise report. Helpers can read and search files and ' +

@@ -10,11 +10,16 @@
  * Drop-in, no dependencies.
  */
 import { CONFIG_DIR_NAME, defineTool, truncateHead, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { Text } from '@earendil-works/pi-tui';
+import { Box, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 import { existsSync, linkSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
+class AgendaToolCard {
+  constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
+  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`◆ ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line.length > 500 ? `${line.slice(0, 497)}…` : line))].join('\n'), 0, 0)); return box.render(width); }
+  invalidate(): void {}
+}
 interface Task {
   id: string;
   text: string;
@@ -191,6 +196,9 @@ export default function tasksExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'task_add',
       label: 'Add task',
+      renderShell: 'self',
+      renderCall: (args, theme) => new AgendaToolCard('Agenda · adding', [args.text, args.due ? `Due · ${args.due}` : 'Someday / no due date'], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as Task | undefined; return new AgendaToolCard(context.isError ? 'Agenda · unavailable' : 'Agenda · added', [d?.text ?? 'Task', d?.due ? `Due · ${d.due}` : `ID · ${d?.id ?? ''}`], theme); },
       description:
         'Add a durable project agenda task: backlog, reminder, deadline, or explicitly requested later work. ' +
         'Never use task_add for the current run’s immediate execution checklist; use todo for that. Returns the ' +
@@ -224,6 +232,9 @@ export default function tasksExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'task_update',
       label: 'Update task',
+      renderShell: 'self',
+      renderCall: (args, theme) => new AgendaToolCard(`Agenda · ${args.done === true ? 'completing' : args.done === false ? 'reopening' : 'updating'}`, [args.text ?? `Task · ${args.id}`], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as Task | undefined; return new AgendaToolCard(context.isError ? 'Agenda · unavailable' : d?.done ? 'Agenda · completed' : 'Agenda · updated', [d?.text ?? 'Task', d?.due ? `Due · ${d.due}` : `ID · ${d?.id ?? ''}`], theme); },
       description:
         'Update a task by id: mark done/undone, change its text, due date, or tags. Only the fields you ' +
         'pass change. Use task_list or /tasks to find IDs. Requires a trusted project.',
@@ -262,6 +273,9 @@ export default function tasksExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'task_remove',
       label: 'Remove task',
+      renderShell: 'self',
+      renderCall: (args, theme) => new AgendaToolCard('Agenda · removing', [`Task · ${args.id}`], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as Task | undefined; return new AgendaToolCard(context.isError ? 'Agenda · unavailable' : 'Agenda · removed', [d?.text ?? 'Task', `ID · ${d?.id ?? ''}`], theme); },
       description: 'Delete a project agenda task by ID. Requires a trusted project.',
       parameters: Type.Object({ id: Type.String({ minLength: 1, maxLength: 100, description: 'ID returned by task_add or task_list.' }) }),
       async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -281,6 +295,9 @@ export default function tasksExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'task_list',
       label: 'List tasks',
+      renderShell: 'self',
+      renderCall: (_args, theme) => new AgendaToolCard('Agenda · reading', ['Project tasks'], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as { count?: number; tasks?: unknown[] } | undefined; const count = d?.count ?? d?.tasks?.length ?? 0; return new AgendaToolCard(context.isError ? 'Agenda · unavailable' : 'Agenda · ready', [`${count} task${count === 1 ? '' : 's'}`], theme); },
       description:
         'Read this project\'s tasks, grouped overdue · today · upcoming · someday (+ done), with ids and ' +
         'due dates. Use to answer what is due or find a task ID. Requires a trusted project.',
@@ -306,6 +323,9 @@ export default function tasksExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'board_card_add',
       label: 'Add board card',
+      renderShell: 'self',
+      renderCall: (args, theme) => new AgendaToolCard('Board · adding card', [args.text, `${args.board} › ${args.column}`], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as (Card & { board?: string; column?: string }) | undefined; return new AgendaToolCard(context.isError ? 'Board · unavailable' : 'Board · card added', [d?.text ?? 'Card', d?.board ? `${d.board} › ${d.column}` : `ID · ${d?.id ?? ''}`], theme); },
       description:
         'Add a card to a kanban board column, creating the board and/or column if they don\'t exist. ' +
         'Use boards to track work items by status. Returns the card ID. Requires a trusted project.',
@@ -330,7 +350,7 @@ export default function tasksExtension(pi: ExtensionAPI): void {
           const card: Card = { id: shortId(), text, tags: params.tags?.length ? params.tags : undefined };
           col.cards.push(card);
           saveBoards(ctx.cwd, boards);
-          return { content: [{ type: 'text' as const, text: `Added card ${card.id} to ${board.name} › ${col.name}.` }], details: card };
+          return { content: [{ type: 'text' as const, text: `Added card ${card.id} to ${board.name} › ${col.name}.` }], details: { ...card, board: board.name, column: col.name } };
         });
       },
     }),
@@ -340,6 +360,9 @@ export default function tasksExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'board_card_move',
       label: 'Move board card',
+      renderShell: 'self',
+      renderCall: (args, theme) => new AgendaToolCard('Board · moving card', [`${args.board} › ${args.toColumn}`, `Card · ${args.id}`], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as (Card & { board?: string; column?: string }) | undefined; return new AgendaToolCard(context.isError ? 'Board · unavailable' : 'Board · card moved', [d?.text ?? 'Card', d?.board ? `${d.board} › ${d.column}` : `ID · ${d?.id ?? ''}`], theme); },
       description: 'Move a card to another column, creating that column if needed. Requires a trusted project.',
       parameters: Type.Object({
         board: Type.String({ minLength: 1, maxLength: 200, description: 'Board name.' }),
@@ -363,7 +386,7 @@ export default function tasksExtension(pi: ExtensionAPI): void {
           if (!col) { col = { name: destination, cards: [] }; board.columns.push(col); }
           col.cards.push(card);
           saveBoards(ctx.cwd, boards);
-          return { content: [{ type: 'text' as const, text: `Moved card ${card.id} to ${board.name} › ${col.name}.` }], details: card };
+          return { content: [{ type: 'text' as const, text: `Moved card ${card.id} to ${board.name} › ${col.name}.` }], details: { ...card, board: board.name, column: col.name } };
         });
       },
     }),
@@ -373,6 +396,9 @@ export default function tasksExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'board_card_update',
       label: 'Update board card',
+      renderShell: 'self',
+      renderCall: (args, theme) => new AgendaToolCard(`Board · ${args.remove ? 'removing' : 'updating'} card`, [args.text ?? `Card · ${args.id}`, args.board], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as (Card & { board?: string; column?: string; removed?: boolean }) | undefined; return new AgendaToolCard(context.isError ? 'Board · unavailable' : d?.removed ? 'Board · card removed' : 'Board · card updated', [d?.text ?? 'Card', d?.board ? `${d.board} › ${d.column}` : `ID · ${d?.id ?? ''}`], theme); },
       description: 'Update a card\'s text or tags. Set remove:true to delete it; other update fields are then ignored. Requires a trusted project.',
       parameters: Type.Object({
         board: Type.String({ minLength: 1, maxLength: 200, description: 'Board name.' }),
@@ -392,7 +418,7 @@ export default function tasksExtension(pi: ExtensionAPI): void {
             if (params.remove) {
               const [removed] = column.cards.splice(index, 1);
               saveBoards(ctx.cwd, boards);
-              return { content: [{ type: 'text' as const, text: `Removed card ${removed.id}.` }], details: removed };
+              return { content: [{ type: 'text' as const, text: `Removed card ${removed.id}.` }], details: { ...removed, board: board.name, column: column.name, removed: true } };
             }
             if (params.text !== undefined) {
               const text = params.text.trim();
@@ -401,7 +427,7 @@ export default function tasksExtension(pi: ExtensionAPI): void {
             }
             if (params.tags !== undefined) column.cards[index].tags = params.tags.length ? params.tags : undefined;
             saveBoards(ctx.cwd, boards);
-            return { content: [{ type: 'text' as const, text: `Updated card ${params.id}.` }], details: column.cards[index] };
+            return { content: [{ type: 'text' as const, text: `Updated card ${params.id}.` }], details: { ...column.cards[index], board: board.name, column: column.name } };
           }
           throw new Error(`No card ${params.id} on ${board.name}.`);
         });
@@ -413,6 +439,9 @@ export default function tasksExtension(pi: ExtensionAPI): void {
     defineTool({
       name: 'board_list',
       label: 'List boards',
+      renderShell: 'self',
+      renderCall: (args, theme) => new AgendaToolCard('Board · reading', [args.board ?? 'All boards'], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as { boards?: Array<{ name: string; columns: number }> } | undefined; const boards = d?.boards ?? []; return new AgendaToolCard(context.isError ? 'Board · unavailable' : 'Board · ready', [boards.length ? boards.map((board) => `${board.name} · ${board.columns} columns`).join(' · ') : 'No boards'], theme); },
       description: 'List one project board or all boards, including columns and card IDs. Requires a trusted project.',
       parameters: Type.Object({ board: Type.Optional(Type.String({ minLength: 1, maxLength: 200, description: 'Board name; omit to list all boards.' })) }),
       async execute(_id, params, _signal, _onUpdate, ctx) {

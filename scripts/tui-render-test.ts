@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { visibleWidth } from '@earendil-works/pi-tui';
 
@@ -6,6 +6,7 @@ const root = resolve(import.meta.dir, '..');
 type Renderer = (entry: { data?: unknown }, options: { expanded: boolean }, theme: typeof theme) => { render(width: number): string[] } | undefined;
 type MessageRenderer = (message: { details?: unknown }, options: { expanded: boolean }, theme: typeof theme) => { render(width: number): string[] } | undefined;
 type Command = { getArgumentCompletions?: (prefix: string) => Array<{ value: string; label?: string }> | null; handler?: (...args: any[]) => Promise<void> | void };
+type Tool = { name: string; renderCall?: (args: any, theme: typeof theme, context: any) => { render(width: number): string[] }; renderResult?: (result: any, options: any, theme: typeof theme, context: any) => { render(width: number): string[] } };
 
 // Styled output is intentional: visibleWidth must remain correct with ANSI and Unicode.
 const esc = (code: number, text: string): string => `\x1b[${code}m${text}\x1b[0m`;
@@ -14,9 +15,19 @@ const theme = {
   bg: (_color: string, text: string) => esc(44, text),
   bold: (text: string) => esc(1, text),
 };
+const themeFrom = (file: string): typeof theme => {
+  const data = JSON.parse(readFileSync(join(root, 'themes', file), 'utf8')) as { colors: Record<string, unknown> };
+  const use = (color: string, text: string, code: number): string => {
+    if (!(color in data.colors)) throw new Error(`${file} does not define renderer role ${color}`);
+    return esc(code, text);
+  };
+  return { fg: (color, text) => use(color, text, 36), bg: (color, text) => use(color, text, 44), bold: theme.bold };
+};
+const renderThemes = [themeFrom('piwi-theme.json'), themeFrom('piwi-theme-light.json')];
 const entryRenderers = new Map<string, Renderer>();
 const messageRenderers = new Map<string, MessageRenderer>();
 const commands = new Map<string, Command>();
+const tools = new Map<string, Tool>();
 let latestWidget: { render(width: number): string[] } | undefined;
 const fakeUi = {
   setWidget(_key: string, value: unknown) {
@@ -25,7 +36,7 @@ const fakeUi = {
   notify() {},
 };
 const api = {
-  registerTool() {},
+  registerTool(tool: Tool) { tools.set(tool.name, tool); },
   registerCommand(name: string, command: Command) { commands.set(name, command); },
   registerEntryRenderer(name: string, renderer: Renderer) { entryRenderers.set(name, renderer); },
   registerMessageRenderer(name: string, renderer: MessageRenderer) { messageRenderers.set(name, renderer); },
@@ -40,8 +51,8 @@ for (const file of readdirSync(join(root, 'extensions')).filter((name) => name.e
 
 // Two columns is the smallest meaningful width for wide Unicode glyphs.
 const widths = [2, 10, 20, 29, 30, 38, 68, 80, 120];
-function assertWidth(name: string, component: { render(width: number): string[] }): void {
-  for (const width of widths) {
+function assertWidth(name: string, component: { render(width: number): string[] }, testedWidths = widths): void {
+  for (const width of testedWidths) {
     for (const line of component.render(width)) {
       if (visibleWidth(line) > width) throw new Error(`${name} overflowed ${width} columns: ${JSON.stringify(line)}`);
     }
@@ -74,6 +85,25 @@ renderEntry('btw-aside', { kind: 'question', question: hostile });
 renderEntry('btw-aside', { kind: 'answer', question: hostile, answer: hostile });
 renderEntry('btw-aside', { kind: 'error', question: hostile, answer: hostile });
 renderEntry('process-event', { title: hostile, tone: 'accent', lines: [hostile, hostile] });
+
+const toolArgs: Record<string, any> = {
+  now: {}, web_search: { query: hostile }, web_fetch: { url: 'https://example.com/path' }, remember: { fact: hostile }, forget: { match: 'old' },
+  wiki_write: { path: 'notes/tool-cards', content: hostile }, wiki_read: { path: 'notes/tool-cards' }, wiki_list: {}, wiki_search: { query: hostile }, ingest_source: { path: './document.pdf' },
+  list_skills: {}, create_skill: { name: 'tool-cards', description: hostile, content: hostile }, ask_user: { question: hostile, choices: ['Yes', 'No'] },
+  plan: { title: hostile, steps: ['one', 'two'] }, plan_step: { step: 1 }, plan_read: {}, todo: { action: 'step', step: 1 }, sub_agent: { tasks: [{ task: hostile, doing: hostile }] },
+  task_add: { text: hostile }, task_update: { id: 'abc123', done: true }, task_remove: { id: 'abc123' }, task_list: {},
+  board_card_add: { board: 'Roadmap', column: 'Todo', text: hostile }, board_card_move: { board: 'Roadmap', id: 'abc123', toColumn: 'Done' }, board_card_update: { board: 'Roadmap', id: 'abc123', text: hostile }, board_list: {},
+  process: { action: 'list' },
+};
+for (const [name, args] of Object.entries(toolArgs)) {
+  const tool = tools.get(name);
+  if (!tool?.renderCall || !tool.renderResult) throw new Error(`Missing call/result renderer: ${name}`);
+  for (const [themeIndex, renderTheme] of renderThemes.entries()) {
+    assertWidth(`${name}-call-theme${themeIndex}`, tool.renderCall(args, renderTheme, { isError: false }), widths.filter((width) => width >= 10));
+    assertWidth(`${name}-result-theme${themeIndex}`, tool.renderResult({ content: [{ type: 'text', text: hostile }], details: {} }, { expanded: true }, renderTheme, { isError: false }), widths.filter((width) => width >= 10));
+    assertWidth(`${name}-error-theme${themeIndex}`, tool.renderResult({ content: [{ type: 'text', text: hostile }], details: {} }, { expanded: true }, renderTheme, { isError: true }), widths.filter((width) => width >= 10));
+  }
+}
 
 // Exercise the responsive Pomodoro widget through its public command path.
 await commands.get('pomodoro')?.handler?.('1 0', { ui: fakeUi });

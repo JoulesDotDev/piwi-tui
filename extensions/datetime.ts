@@ -11,15 +11,20 @@
  * .pi/extensions/). No dependencies.
  */
 import { defineTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import { Box, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 const pad = (n: number): string => String(n).padStart(2, '0');
+class TimeCard { constructor(private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {} render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold('◷ Current time')), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0)); return box.render(width); } invalidate(): void {} }
 
 export default function datetimeExtension(pi: ExtensionAPI): void {
   pi.registerTool(
     defineTool({
       name: 'now',
       label: 'Current date & time',
+      renderShell: 'self',
+      renderCall: (_args, theme) => new TimeCard(['Checking local time…'], theme),
+      renderResult: (result, _options, theme, context) => { const d = result.details as { localDate?: string; localTime?: string; timezone?: string } | undefined; return new TimeCard([context.isError ? 'Unavailable' : `${d?.localDate ?? ''} · ${d?.localTime ?? ''}`, d?.timezone ?? ''], theme); },
       description:
         'Return the current local and UTC date, time, and timezone. Call before date-relative or ' +
         'freshness-sensitive answers. Verify facts that may have changed since your knowledge cutoff using current sources.',
