@@ -14,7 +14,7 @@ writeFileSync(internal, hostile + 'tail');
 writeFileSync(external, 'external evidence');
 
 const tools = new Map<string, any>();
-wiki({ registerTool(tool: any) { tools.set(tool.name, tool); }, on() {} });
+wiki({ registerTool(tool: any) { tools.set(tool.name, tool); }, registerEntryRenderer() {}, registerCommand() {}, appendEntry() {}, on() {} } as any);
 for (const name of ['wiki_write', 'wiki_read', 'wiki_list', 'wiki_search', 'ingest_source']) {
   if (typeof tools.get(name)?.execute !== 'function') throw new Error(`Malformed or missing ${name}.`);
 }

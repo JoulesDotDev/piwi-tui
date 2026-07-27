@@ -1,7 +1,8 @@
 /** Session-owned background processes: start, inspect, send stdin, and stop. */
-import { defineTool, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { defineTool, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { StringEnum } from '@earendil-works/pi-ai';
-import { Box, Text, truncateToWidth } from '@earendil-works/pi-tui';
+import { Box, Key, Text, matchesKey, truncateToWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
+import { PiwiInteractiveList, renderControlHints, type InteractiveRow, type InteractiveTheme } from '../lib/interactive-view.ts';
 import { Type } from 'typebox';
 import { ProcessManager, type ProcessInfo } from '@aliou/pi-processes/src/manager';
 import { appendFileSync, readFileSync } from 'node:fs';
@@ -28,6 +29,7 @@ class ProcessEventCard {
 export default function processesExtension(pi: ExtensionAPI): void {
   const manager = new ProcessManager();
   let activeCtx: ExtensionContext | undefined;
+  let refreshDashboard: (() => void) | undefined;
   const syncWidget = (): void => {
     if (!activeCtx?.hasUI) return;
     const running = manager.list().filter(live);
@@ -38,7 +40,7 @@ export default function processesExtension(pi: ExtensionAPI): void {
       theme.fg('muted', ' · /processes'), 0, 0,
     ));
   };
-  manager.onEvent(syncWidget);
+  manager.onEvent(() => { syncWidget(); refreshDashboard?.(); });
   const render = (processes: ProcessInfo[], theme: { fg(c: string, s: string): string; bold(s: string): string }) => new Text(processes.length ? processes.map((p) => {
     const tone = live(p) ? 'success' : p.success ? 'muted' : 'error';
     const status = live(p) ? `running · ${age(p.startTime)}` : `${p.status}${p.exitCode === null ? '' : ` · exit ${p.exitCode}`}`;
@@ -48,6 +50,69 @@ export default function processesExtension(pi: ExtensionAPI): void {
 
   pi.registerEntryRenderer<ProcessEvent>('process-event', (entry, _opts, theme) => entry.data ? new ProcessEventCard(entry.data, theme) : undefined);
   pi.registerEntryRenderer<{ processes: ProcessInfo[] }>('processes-view', (entry, _opts, theme) => entry.data ? { render: (width: number) => render(entry.data.processes, theme).render(width), invalidate() {} } : undefined);
+
+  const logText = (id: string, count = 80): string => {
+    const logs = manager.getLogFiles(id); if (!logs) return 'No logs for this process.';
+    return tail(logs.combinedFile, count).map((line) => line.startsWith('2:') ? `[stderr] ${clean(line.slice(2))}` : line.startsWith('0:') ? `[input] ${clean(line.slice(2))}` : `[stdout] ${clean(line.replace(/^1:/, ''))}`).join('\n') || '(no output yet)';
+  };
+  const showLogs = async (ctx: ExtensionCommandContext, id: string): Promise<void> => {
+    await ctx.ui.custom<void>((tui, theme, _keys, done) => ({
+      render(width: number) {
+        const process = manager.get(id);
+        const heading = theme.fg('accent', theme.bold(`● ${process?.name ?? id} · logs`));
+        const body = logText(id).split('\n').slice(-80).flatMap((line) => wrapTextWithAnsi(theme.fg('text', line), Math.max(1, width)));
+        return [truncateToWidth(heading, width), '', ...body, '', ...renderControlHints(theme as InteractiveTheme, ['r refresh · esc back'], width)];
+      },
+      handleInput(data: string) { if (matchesKey(data, Key.escape) || data === 'q') done(undefined); else if (data === 'r') tui.requestRender(); },
+      invalidate() {},
+    }));
+  };
+  const openProcessDashboard = async (initialId: string | undefined, ctx: ExtensionCommandContext): Promise<void> => {
+    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
+      const rows = (): InteractiveRow[] => manager.list().map((process) => ({
+        id: process.id,
+        label: process.name,
+        marker: live(process) ? '●' : process.success ? '✓' : '×',
+        right: live(process) ? age(process.startTime) : process.status,
+        detail: `${clean(process.command, 300)} · ${process.id}`,
+        tone: live(process) ? 'success' : process.success ? 'muted' : 'error',
+      }));
+      let list: PiwiInteractiveList;
+      const refresh = (): void => { list.setTitle(`● Processes · ${manager.list().filter(live).length} running`); list.setRows(rows(), list.selectedRow()?.id ?? initialId); tui.requestRender(); };
+      list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
+        title: `● Processes · ${manager.list().filter(live).length} running`,
+        empty: 'No session processes — press n to start one.',
+        controls: ['↑↓ select · enter/l logs · n start', 'i send input · s stop · esc close'],
+        onClose: () => done(undefined),
+        onInput: (data, selected) => {
+          if ((matchesKey(data, Key.enter) || data === 'l') && selected) return void showLogs(ctx, selected.id).then(refresh);
+          if (data === 'n') return void (async () => {
+            const command = await ctx.ui.input('Start a session process', 'Shell command'); if (command === undefined || !command.trim()) return;
+            if (manager.list().filter(live).length >= MAX_PROCESSES) return void ctx.ui.notify(`At most ${MAX_PROCESSES} session processes may run at once.`, 'warning');
+            const name = await ctx.ui.input('Process name (optional)', command.trim().split(/\s+/)[0] ?? 'process');
+            manager.start(clean(name?.trim() || command.trim().split(/\s+/)[0] || 'process', 80), command.trim(), ctx.cwd); refresh();
+          })();
+          if (data === 'i' && selected) return void (async () => {
+            const text = await ctx.ui.input('Send process input', 'Text followed by Enter'); if (text === undefined) return;
+            const result = manager.writeToStdin(selected.id, `${text}\n`); if (!result.ok) ctx.ui.notify(`Could not send input: ${result.reason}.`, 'warning');
+            else { const logs = manager.getLogFiles(selected.id); if (logs) appendFileSync(logs.combinedFile, `0:${text}\n`); }
+            refresh();
+          })();
+          if (data === 's' && selected) return void (async () => {
+            const process = manager.get(selected.id); if (!process || !live(process)) return;
+            if (!(await ctx.ui.confirm(`Stop ${process.name}?`, clean(process.command, 500)))) return;
+            const result = await manager.kill(selected.id, { timeoutMs: 5_000 }); if (!result.ok) ctx.ui.notify(`Could not stop ${selected.id}: ${result.reason}.`, 'warning');
+            refresh();
+          })();
+        },
+      });
+      if (initialId) list.setRows(rows(), initialId);
+      refreshDashboard = refresh;
+      return { render: (width) => list.render(width), handleInput: (data) => list.handleInput(data), invalidate: () => list.invalidate() };
+    });
+    refreshDashboard = undefined;
+  };
+
   pi.registerCommand('processes', {
     description: 'Show session-owned background processes',
     getArgumentCompletions: (prefix) => {
@@ -58,6 +123,7 @@ export default function processesExtension(pi: ExtensionAPI): void {
       const id = args.trim();
       const process = id ? manager.get(id) : undefined;
       if (id && !process) return void ctx.ui.notify(`No process ${id}.`, 'warning');
+      if (ctx.mode === 'tui') return openProcessDashboard(process?.id, ctx);
       refresh(process ? [process] : undefined);
       ctx.ui.notify('Use the process tool to start, inspect logs, send input, or stop a process.', 'info');
     },

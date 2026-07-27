@@ -7,8 +7,9 @@
  * transcript. `ask_user` asks the user a decision via pi's native select/input
  * dialogs. Drop-in, no dependencies.
  */
-import { CONFIG_DIR_NAME, defineTool, truncateHead, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { Box, Text } from '@earendil-works/pi-tui';
+import { CONFIG_DIR_NAME, defineTool, truncateHead, type ExtensionAPI, type ExtensionCommandContext } from '@earendil-works/pi-coding-agent';
+import { Box, Key, Text, matchesKey } from '@earendil-works/pi-tui';
+import { PiwiInteractiveList, type InteractiveRow, type InteractiveTheme } from '../lib/interactive-view.ts';
 import { Type } from 'typebox';
 import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -109,6 +110,9 @@ const readPlan = (cwd: string, file: string): string => {
 };
 
 export default function planExtension(pi: ExtensionAPI): void {
+  let completionCwd: string | undefined;
+  pi.on('session_start', (_event, ctx) => { completionCwd = ctx.isProjectTrusted() ? ctx.cwd : undefined; });
+  pi.on('session_shutdown', () => { completionCwd = undefined; });
   const projectTools = new Set(['plan', 'plan_step', 'plan_read']);
   pi.on('tool_call', (event, ctx) => {
     if (projectTools.has(event.toolName) && !ctx.isProjectTrusted()) return { block: true, reason: 'Trust the project before accessing plans.' };
@@ -270,11 +274,64 @@ export default function planExtension(pi: ExtensionAPI): void {
     return new Text(out, 0, 0);
   });
 
+  const openPlanDashboard = async (file: string, ctx: ExtensionCommandContext): Promise<void> => {
+    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
+      let markdown = readPlan(ctx.cwd, file);
+      const parse = (): { title: string; rows: InteractiveRow[]; done: number; total: number } => {
+        const title = clean(markdown.split('\n').find((line) => line.startsWith('# '))?.slice(2) ?? file.replace(/\.md$/, ''), 100);
+        const steps = markdown.split('\n').flatMap((line, index): InteractiveRow[] => {
+          const match = /^- \[([ x])\] (.+)$/i.exec(line.trim());
+          return match ? [{ id: String(index), label: clean(match[2]), marker: match[1].toLowerCase() === 'x' ? '✓' : '○', tone: match[1].toLowerCase() === 'x' ? 'success' : 'text' }] : [];
+        });
+        return { title, rows: steps, done: steps.filter((row) => row.marker === '✓').length, total: steps.length };
+      };
+      let parsed = parse();
+      let list: PiwiInteractiveList;
+      const refresh = (preferred?: string): void => {
+        markdown = readPlan(ctx.cwd, file); parsed = parse();
+        list.setTitle(`◆ ${parsed.title} · ${parsed.done}/${parsed.total}`);
+        list.setRows(parsed.rows, preferred); tui.requestRender();
+      };
+      list = new PiwiInteractiveList(parsed.rows, theme as InteractiveTheme, {
+        title: `◆ ${parsed.title} · ${parsed.done}/${parsed.total}`,
+        empty: 'This plan has no checklist steps.',
+        controls: ['↑↓ select · enter/space complete or reopen', 'esc close'],
+        onClose: () => done(undefined),
+        onInput: (data, selected) => {
+          if (!(matchesKey(data, Key.enter) || matchesKey(data, Key.space)) || !selected) return;
+          void planLock(ctx.cwd, () => {
+            const lines = readPlan(ctx.cwd, file).split('\n');
+            const index = Number(selected.id); const line = lines[index];
+            if (!line || !/^- \[[ x]\] /i.test(line.trim())) return;
+            const nextDone = !/^- \[x\] /i.test(line.trim());
+            lines[index] = line.replace(/- \[[ x]\] /i, `- [${nextDone ? 'x' : ' '}] `);
+            atomicWrite(join(plansDir(ctx.cwd), file), lines.join('\n'));
+          }).then(() => refresh(selected.id), (error) => ctx.ui.notify((error as Error).message, 'warning'));
+        },
+      });
+      return list;
+    });
+  };
+
   pi.registerCommand('plan', {
-    description: 'Show the active plan (or a named one)',
+    description: 'Browse plans or interact with a named plan',
+    getArgumentCompletions: (prefix) => {
+      const q = prefix.trim().toLowerCase();
+      const options = (completionCwd ? planFiles(completionCwd) : []).map((file) => file.replace(/\.md$/, '')).filter((slug) => slug.startsWith(q)).map((slug) => ({ value: slug, label: slug }));
+      return options.length ? options : null;
+    },
     handler: async (args, ctx) => {
       if (!ctx.isProjectTrusted()) return void ctx.ui.notify('Trust the project before viewing plans.', 'warning');
-      const file = resolvePlan(ctx.cwd, args.trim() || undefined);
+      let file = resolvePlan(ctx.cwd, args.trim() || undefined);
+      if (ctx.mode === 'tui') {
+        const available = planFiles(ctx.cwd).map((name) => name.replace(/\.md$/, ''));
+        if (!args.trim() && available.length > 1) {
+          const selected = await ctx.ui.select('Open a plan', available);
+          file = selected ? resolvePlan(ctx.cwd, selected) : null;
+        }
+        if (!file) return void ctx.ui.notify(available.length ? `No plan "${args.trim()}".` : 'No plans yet — the plan tool drafts one.', available.length ? 'warning' : 'info');
+        return openPlanDashboard(file, ctx);
+      }
       const send = (lines: { text: string; color?: string; bold?: boolean }[], _fallback: string): void => {
         const visible = lines.slice(0, 500);
         if (lines.length > visible.length) visible.push({ text: `… ${lines.length - visible.length} more lines; use plan_read for targeted access.`, color: 'muted' });

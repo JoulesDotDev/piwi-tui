@@ -25,15 +25,27 @@ try {
   const tuiRender = spawnSync('bun', [join(root, 'scripts', 'tui-render-test.ts')], { cwd: root, encoding: 'utf8', timeout: 60_000 });
   if (tuiRender.error) throw tuiRender.error;
   if (tuiRender.status !== 0) throw new Error(`TUI render check failed (${tuiRender.status}):\n${tuiRender.stderr}`);
+  const interactiveViewTest = spawnSync('bun', [join(root, 'scripts', 'interactive-view-test.ts')], { cwd: root, encoding: 'utf8', timeout: 30_000 });
+  if (interactiveViewTest.error) throw interactiveViewTest.error;
+  if (interactiveViewTest.status !== 0) throw new Error(`Interactive view regression check failed (${interactiveViewTest.status}):\n${interactiveViewTest.stderr}`);
+  const interactiveCommandTest = spawnSync('bun', [join(root, 'scripts', 'interactive-command-test.ts')], { cwd: root, encoding: 'utf8', timeout: 60_000 });
+  if (interactiveCommandTest.error) throw interactiveCommandTest.error;
+  if (interactiveCommandTest.status !== 0) throw new Error(`Interactive command regression check failed (${interactiveCommandTest.status}):\n${interactiveCommandTest.stderr}`);
   const guardTest = spawnSync('bun', [join(root, 'scripts', 'guard-test.ts')], { cwd: root, encoding: 'utf8', timeout: 30_000 });
   if (guardTest.error) throw guardTest.error;
   if (guardTest.status !== 0) throw new Error(`Guard regression check failed (${guardTest.status}):\n${guardTest.stderr}`);
   const wikiTest = spawnSync('bun', [join(root, 'scripts', 'wiki-test.ts')], { cwd: root, encoding: 'utf8', timeout: 60_000 });
   if (wikiTest.error) throw wikiTest.error;
   if (wikiTest.status !== 0) throw new Error(`Wiki import regression check failed (${wikiTest.status}):\n${wikiTest.stderr}`);
+  const todoTest = spawnSync('bun', [join(root, 'scripts', 'todo-test.ts')], { cwd: root, encoding: 'utf8', timeout: 30_000 });
+  if (todoTest.error) throw todoTest.error;
+  if (todoTest.status !== 0) throw new Error(`Todo retention regression check failed (${todoTest.status}):\n${todoTest.stderr}`);
   const petLockTest = spawnSync('bun', [join(root, 'scripts', 'pet-lock-test.ts')], { cwd: root, encoding: 'utf8', timeout: 30_000 });
   if (petLockTest.error) throw petLockTest.error;
   if (petLockTest.status !== 0) throw new Error(`Pet lock regression check failed (${petLockTest.status}):\n${petLockTest.stderr}`);
+  const counterTest = spawnSync('bun', [join(root, 'scripts', 'counter-test.ts')], { cwd: root, encoding: 'utf8', timeout: 30_000 });
+  if (counterTest.error) throw counterTest.error;
+  if (counterTest.status !== 0) throw new Error(`Counter regression check failed (${counterTest.status}):\n${counterTest.stderr}`);
   const extractionTest = spawnSync('bun', [join(root, 'scripts', 'extraction-test.ts')], { cwd: root, encoding: 'utf8', timeout: 60_000 });
   if (extractionTest.error) throw extractionTest.error;
   if (extractionTest.status !== 0) throw new Error(`Document extraction regression check failed (${extractionTest.status}):\n${extractionTest.stderr}`);
@@ -82,7 +94,7 @@ try {
   }
 
   JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  console.log(`check passed: ${extensions.length} extensions build/load; renderer widths/completions; guard paths; wiki imports; document extraction; helper config; pet locks; ${darkKeys.length} theme colors + contrast match schema`);
+  console.log(`check passed: ${extensions.length} extensions build/load; renderer widths/completions + interactive controls; guard paths; wiki imports; retained todo; document extraction; helper config; pet/counter locks; ${darkKeys.length} theme colors + contrast match schema`);
 } finally {
   rmSync(outdir, { recursive: true, force: true });
 }

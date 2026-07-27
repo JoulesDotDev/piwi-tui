@@ -11,9 +11,11 @@ import {
   getAgentDir,
   withFileMutationQueue,
   type ExtensionAPI,
+  type ExtensionCommandContext,
 } from '@earendil-works/pi-coding-agent';
 import { StringEnum } from '@earendil-works/pi-ai';
 import { Box, Text } from '@earendil-works/pi-tui';
+import { PiwiInteractiveList, type InteractiveRow, type InteractiveTheme } from '../lib/interactive-view.ts';
 import { Type } from 'typebox';
 import {
   existsSync, linkSync, mkdirSync, readFileSync, realpathSync,
@@ -231,6 +233,45 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     return new Text(sections.join('\n'), 0, 0);
   });
 
+  const openMemoryDashboard = async (initialScope: 'all' | Scope, ctx: ExtensionCommandContext): Promise<void> => {
+    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
+      let scope = initialScope;
+      const facts = (): Array<{ id: string; scope: Scope; fact: string }> => {
+        const scopes: Scope[] = scope === 'all' ? ['project', 'global'] : [scope];
+        return scopes.flatMap((itemScope) => (itemScope === 'project' && !ctx.isProjectTrusted() ? [] : bullets(readScope(itemScope, ctx.cwd)).map((fact, index) => ({ id: `${itemScope}:${index}`, scope: itemScope, fact }))));
+      };
+      const rows = (): InteractiveRow[] => facts().map((item) => ({ id: item.id, label: item.fact, marker: item.scope === 'global' ? 'G' : 'P', detail: item.scope === 'global' ? 'Available in every project' : 'This project only' }));
+      let list: PiwiInteractiveList;
+      const refresh = (preferred?: string): void => { list.setTitle(`✦ Memory · ${scope} · ${facts().length} facts`); list.setRows(rows(), preferred); tui.requestRender(); };
+      list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
+        title: `✦ Memory · ${scope} · ${facts().length} facts`,
+        empty: `No ${scope === 'all' ? 'accessible' : scope} memories.`,
+        controls: ['↑↓ select · p project · g global · a all', 'd forget selected · esc close'],
+        onClose: () => done(undefined),
+        onInput: (data, selected) => {
+          if (data === 'p') { if (!ctx.isProjectTrusted()) return void ctx.ui.notify('Trust the project before viewing project memory.', 'warning'); scope = 'project'; return refresh(); }
+          if (data === 'g') { scope = 'global'; return refresh(); }
+          if (data === 'a') { scope = 'all'; return refresh(); }
+          if (data === 'd' && selected) return void (async () => {
+            const item = facts().find((fact) => fact.id === selected.id); if (!item) return;
+            if (!(await ctx.ui.confirm(`Forget this ${item.scope} memory?`, item.fact))) return;
+            await mutate(item.scope, ctx.cwd, (text, file) => {
+              const lines = text.split('\n');
+              let removed = false;
+              const kept = lines.filter((line) => {
+                if (!removed && line.trim().startsWith('- ') && clean(line.trim().slice(2)).toLowerCase() === item.fact.toLowerCase()) { removed = true; return false; }
+                return true;
+              });
+              if (removed) atomicWrite(file, `${kept.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`);
+            });
+            refresh();
+          })().catch((error) => ctx.ui.notify((error as Error).message, 'warning'));
+        },
+      });
+      return list;
+    });
+  };
+
   pi.registerCommand('memory', {
     description: 'View durable memory (/memory [project|global])',
     getArgumentCompletions: (prefix) => {
@@ -241,6 +282,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       const requested = args.trim().toLowerCase();
       if (requested && requested !== 'project' && requested !== 'global') return void ctx.ui.notify('Usage: /memory [project|global]', 'warning');
       if (requested !== 'global' && !ctx.isProjectTrusted()) return void ctx.ui.notify('Trust the project before viewing project memory.', 'warning');
+      if (ctx.mode === 'tui') return openMemoryDashboard((requested || 'all') as 'all' | Scope, ctx);
       pi.appendEntry<MemoryViewData>('memory-view', { scope: (requested || 'all') as MemoryViewData['scope'], cwd: ctx.cwd });
     },
   });

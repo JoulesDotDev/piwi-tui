@@ -85,6 +85,9 @@ renderEntry('btw-aside', { kind: 'question', question: hostile });
 renderEntry('btw-aside', { kind: 'answer', question: hostile, answer: hostile });
 renderEntry('btw-aside', { kind: 'error', question: hostile, answer: hostile });
 renderEntry('process-event', { title: hostile, tone: 'accent', lines: [hostile, hostile] });
+renderEntry('counter-event', { name: hostile, value: 12345, action: 'add', amount: 1 });
+renderEntry('skills-view', { records: [{ name: hostile, description: hostile, scope: 'project' }] });
+renderEntry('wiki-view', { pages: [`notes/${hostile}.md`] });
 
 const toolArgs: Record<string, any> = {
   now: {}, web_search: { query: hostile }, web_fetch: { url: 'https://example.com/path' }, remember: { fact: hostile }, forget: { match: 'old' },
@@ -130,8 +133,11 @@ const expectedCompletions: Record<string, string[]> = {
   guard: ['on', 'off', 'status'],
   memory: ['project', 'global'],
   pomodoro: ['25 5', '50 10', '25 0', 'stop'],
+  counter: ['help'],
   agents: ['stop'],
   tasks: ['overdue', 'today', 'upcoming', 'someday', 'done'],
+  todo: ['clear'],
+  skills: ['project', 'global'],
 };
 for (const [name, expected] of Object.entries(expectedCompletions)) {
   const completion = commands.get(name)?.getArgumentCompletions;

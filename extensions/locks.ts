@@ -73,6 +73,7 @@ function collect(cwd: string): LocksData {
     { label: 'Quick checklist', file: join(projectPi, 'TODO.md.lock') },
     { label: 'Global memory', file: join(agent, 'MEMORY.md.lock') },
     { label: 'Pet', file: join(agent, 'pet.json.lock') },
+    { label: 'Counters', file: join(agent, 'counters.json.lock') },
   ];
   const rows: Row[] = [{ text: 'Lock check', tone: 'accent', bold: true }];
   for (const target of targets) rows.push(...inspect(target));

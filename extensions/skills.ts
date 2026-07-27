@@ -8,10 +8,11 @@
  *   • list_skills  — report the skills found in both locations
  * Drop-in, no dependencies.
  */
-import { CONFIG_DIR_NAME, defineTool, getAgentDir, truncateHead, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import { CONFIG_DIR_NAME, defineTool, getAgentDir, truncateHead, type ExtensionAPI, type ExtensionCommandContext } from '@earendil-works/pi-coding-agent';
 import { StringEnum } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
-import { Box, Text } from '@earendil-works/pi-tui';
+import { Box, Key, Text, matchesKey } from '@earendil-works/pi-tui';
+import { PiwiInteractiveList, PiwiTextViewer, type InteractiveRow, type InteractiveTheme } from '../lib/interactive-view.ts';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
@@ -64,7 +65,7 @@ function frontmatter(text: string): { name?: string; description?: string } {
   return { name: out.name, description: out.description };
 }
 
-function listScope(scope: 'global' | 'project', cwd: string): { name: string; description: string }[] {
+function listScope(scope: 'global' | 'project', cwd: string): { name: string; description: string; slug: string; scope: 'global' | 'project' }[] {
   const dir = dirFor(scope, cwd);
   try {
     return readdirSync(dir, { withFileTypes: true })
@@ -77,7 +78,7 @@ function listScope(scope: 'global' | 'project', cwd: string): { name: string; de
       })
       .map((entry) => {
         const fm = frontmatter(readFileSync(join(dir, entry.name, 'SKILL.md'), 'utf8'));
-        return { name: cleanLine(fm.name?.trim() || entry.name, 100), description: cleanLine(fm.description?.trim() || '', 500) };
+        return { name: cleanLine(fm.name?.trim() || entry.name, 100), description: cleanLine(fm.description?.trim() || '', 500), slug: entry.name, scope };
       });
   } catch {
     return [];
@@ -185,4 +186,59 @@ export default function skillsExtension(pi: ExtensionAPI): void {
       },
     }),
   );
+
+  const openSkills = async (scope: 'all' | 'project' | 'global', ctx: ExtensionCommandContext): Promise<void> => {
+    const records = [
+      ...(scope !== 'global' && ctx.isProjectTrusted() ? listScope('project', ctx.cwd) : []),
+      ...(scope !== 'project' ? listScope('global', ctx.cwd) : []),
+    ];
+    if (ctx.mode !== 'tui') {
+      pi.appendEntry('skills-view', { records });
+      return;
+    }
+    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
+      let query = '';
+      const shown = () => records.filter((skill) => !query || `${skill.name} ${skill.description} ${skill.slug}`.toLowerCase().includes(query));
+      const rows = (): InteractiveRow[] => shown().map((skill) => ({ id: `${skill.scope}:${skill.slug}`, label: skill.name, marker: skill.scope === 'global' ? 'G' : 'P', detail: skill.description || skill.slug }));
+      let list: PiwiInteractiveList;
+      const refresh = (): void => { list.setTitle(`◇ Skills · ${shown().length}${query ? ` matching "${query}"` : ''}`); list.setRows(rows()); tui.requestRender(); };
+      list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
+        title: `◇ Skills · ${records.length}`,
+        empty: query ? 'No skills match this filter.' : 'No accessible skills.',
+        controls: ['↑↓ select · enter open · / filter', 'esc close'],
+        onClose: () => done(undefined),
+        onInput: (data, selected) => {
+          if (data === '/') return void ctx.ui.input('Filter skills', 'Name or description contains…').then((value) => { if (value !== undefined) { query = cleanLine(value, 100).toLowerCase(); refresh(); } });
+          if (!matchesKey(data, Key.enter) || !selected) return;
+          const skill = records.find((item) => `${item.scope}:${item.slug}` === selected.id); if (!skill) return;
+          const file = join(dirFor(skill.scope, ctx.cwd), skill.slug, 'SKILL.md');
+          let text = ''; try { text = readFileSync(file, 'utf8'); } catch (error) { return void ctx.ui.notify((error as Error).message, 'warning'); }
+          void ctx.ui.custom<void>((innerTui, innerTheme, _innerKeys, close) => {
+            const viewer = new PiwiTextViewer(`◇ ${skill.name}`, text, innerTheme as InteractiveTheme, () => close(undefined));
+            return { render: (width) => viewer.render(width), handleInput: (key) => { viewer.handleInput(key); innerTui.requestRender(); }, invalidate: () => viewer.invalidate() };
+          }).then(refresh);
+        },
+      });
+      return list;
+    });
+  };
+
+  pi.registerEntryRenderer<{ records: Array<{ name: string; description: string; scope: string }> }>('skills-view', (entry, _options, theme) => {
+    if (!entry.data) return undefined;
+    const lines = [theme.fg('accent', theme.bold(`◇ Skills · ${entry.data.records.length}`)), ...entry.data.records.map((skill) => `${theme.fg('muted', skill.scope === 'global' ? 'G' : 'P')} ${theme.fg('text', skill.name)}${skill.description ? theme.fg('dim', ` · ${skill.description}`) : ''}`)];
+    return new Text(lines.join('\n'), 0, 0);
+  });
+  pi.registerCommand('skills', {
+    description: 'Browse and open project or global skills',
+    getArgumentCompletions: (prefix) => {
+      const values = ['project', 'global'].filter((value) => value.startsWith(prefix.trim().toLowerCase())).map((value) => ({ value, label: value }));
+      return values.length ? values : null;
+    },
+    handler: async (args, ctx) => {
+      const scope = args.trim().toLowerCase();
+      if (scope && scope !== 'project' && scope !== 'global') return void ctx.ui.notify('Use /skills [project|global].', 'warning');
+      if (scope !== 'global' && !ctx.isProjectTrusted()) return void ctx.ui.notify('Trust the project before browsing project skills.', 'warning');
+      await openSkills((scope || 'all') as 'all' | 'project' | 'global', ctx);
+    },
+  });
 }
