@@ -8,25 +8,27 @@ A guiding rule: **this package never replaces pi's main system prompt.** Enabled
 
 ## Install
 
-This is a standalone pi package. Install the managed Git copy—Pi clones it under `~/.pi/agent/git/` and installs runtime dependencies, so deleting any personal checkout cannot break it:
+Install the managed npm package globally (available in every project):
 
 ```sh
-pi install git:github.com/JoulesDotDev/piwi-tui
+pi install npm:piwi-tui
 ```
 
 For a project-only install, use `-l`:
 
 ```sh
-pi install git:github.com/JoulesDotDev/piwi-tui -l
+pi install npm:piwi-tui -l
 ```
 
-Pin a release when available:
+Pi keeps npm packages under its own agent directory and installs runtime dependencies automatically, so no working checkout is required. To update later, run `pi update npm:piwi-tui`.
+
+Git remains an alternative:
 
 ```sh
 pi install git:github.com/JoulesDotDev/piwi-tui@v1.0.0
 ```
 
-Then open `/settings` in pi and select `piwi-theme` (or `piwi-theme-light`). Manage installs with `pi list`, `pi remove git:github.com/JoulesDotDev/piwi-tui`, and **`pi config`** (enable/disable individual resources — see _Per-project control_).
+Then open `/settings` in pi and select `piwi-theme` (or `piwi-theme-light`). Manage installs with `pi list`, `pi remove npm:piwi-tui`, and **`pi config`** (enable/disable individual resources — see _Per-project control_).
 
 ### Contributor local-path install
 
@@ -48,7 +50,7 @@ No build step either way — pi loads the TypeScript directly. Contributors can 
 
 ### Extraction tier — only for `wiki`'s `ingest_source`
 
-`wiki.ts` can pull text out of PDF, DOCX, PPTX, XLSX, ODT, ODP, and ODS documents. That needs three libraries (`unpdf`, `mammoth`, `officeparser`), which is what `bun install` above fetches. Everything else in `wiki` — and every other extension — works without them, and md / txt / csv / json ingest needs no dependencies at all. The deps resolve from this folder even when the extension is loaded from elsewhere, so you install them **once here**.
+`wiki.ts` can pull text out of PDF, DOCX, PPTX, XLSX, ODT, ODP, and ODS documents. That needs three libraries (`unpdf`, `mammoth`, `officeparser`). Pi installs them automatically for npm/Git installs; local-path contributors get them with `npm install` or `bun install`. Everything else in `wiki`—and plain md/txt/csv/json ingest—works without document-extraction libraries.
 
 ---
 
