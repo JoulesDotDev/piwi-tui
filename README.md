@@ -1,8 +1,8 @@
-# Piwi extensions for pi.dev (TUI)
+# Piwi TUI for pi.dev
 
-Portable Piwi-inspired capabilities, repackaged as a [pi.dev](https://pi.dev) extension package plus paired pastel dark/light themes. Extensions are single TypeScript files with no local imports. Dependency-free files can be copied directly; keep `wiki.ts` in this package (or symlink it) for document-extraction dependencies, and keep `subagent.ts` beside `web.ts`/`datetime.ts` for helper web/time tools.
+**Piwi = Pi + Wiki.** It is a playful, practical [pi.dev](https://pi.dev) extension pack with durable project knowledge, planning and workflow tools, parallel helpers, safe web access, session processes, a tiny pet, and paired pastel dark/light themes. Extensions are portable TypeScript files; features with runtime dependencies are installed automatically with the package.
 
-A guiding rule: **this package never replaces pi's main system prompt.** Enabled tools add concise descriptions, snippets, and focused `promptGuidelines` bullets to pi's generated prompt. Memory and context-status features may also prepend clearly labelled synthetic context before model calls; `sub_agent` starts separate helpers with a small read-only system appendix. Nothing here makes the model "act like Piwi" — it adds capabilities and targeted usage guidance.
+A guiding rule: **this package never replaces pi's main system prompt or adds a persona prompt.** Enabled tools contribute concise descriptions and focused usage guidance. Memory may prepend clearly labelled saved facts before model calls, and `sub_agent` starts isolated helpers with a small read-only system appendix.
 
 ---
 
@@ -92,7 +92,7 @@ No build step either way — pi loads the TypeScript directly. Contributors can 
 
 ### Tool cards
 
-All 27 Piwi-owned tools render compact call and result cards: action + target, one useful outcome, and only decision-relevant metadata such as progress, scope, counts, or destination. Large web/process evidence is bounded and labelled untrusted. Card call/success/error states are width-tested in both themes; model-visible tool semantics remain unchanged.
+All 27 package-owned tools render compact call and result cards: action + target, one useful outcome, and only decision-relevant metadata such as progress, scope, counts, or destination. Large web/process evidence is bounded and labelled untrusted. Card call/success/error states are width-tested in both themes; model-visible tool semantics remain unchanged.
 
 ### Command reference
 
@@ -138,7 +138,7 @@ All 27 Piwi-owned tools render compact call and result cards: action + target, o
 
 **Memory** — `remember`/`forget` maintain curated markdown bullets in project or global `MEMORY.md`. Every write requires interactive approval; global facts should be non-sensitive cross-project preferences only. Before every model call, up to 24,000 characters from each scope are sent to the active provider, including tool-loop follow-ups; memory therefore consumes context and discloses its content remotely. `/memory` renders current files locally without copying snapshots into session history. The 100-fact threshold is a curation warning, not a storage limit. Both files remain human-editable.
 
-**Pet** — `pet.ts` keeps one companion globally across every project in `~/.pi/agent/pet.json`. A new companion asks for its name on the first `/pet` visit. It earns exactly **1 Spark per 500 assistant output tokens** and **1 XP per 1,000 output tokens** (input and cache tokens earn nothing, and partial progress carries over). The responsive day/night widget reacts to reads, searches, edits, shell work, tests, and git without storing paths, commands, or tool output. Growth runs from hatchling to brightling to a permanent user-chosen Luminary, Tinkerer, or Dreamer evolution; care develops kind, curious, and calm personality traits.
+**Pet** — `pet.ts` keeps one companion globally across every project in `~/.pi/agent/pet.json`. A new companion starts as **Piwi** and asks on the first `/pet` visit whether to keep that name or choose another. It earns exactly **1 Spark per 500 assistant output tokens** and **1 XP per 1,000 output tokens** (input and cache tokens earn nothing, and partial progress carries over). The responsive day/night widget reacts to reads, searches, edits, shell work, tests, and git without storing paths, commands, or tool output. Growth runs from hatchling to brightling to a permanent user-chosen Luminary, Tinkerer, or Dreamer evolution; care develops kind, curious, and calm personality traits.
 
 `/pet` opens the interactive nook. Direct commands include `/pet show|hide|status|help`, `/pet profile`, `/pet name`, `/pet care`, `/pet shop`, `/pet collection`, `/pet achievements`, `/pet journal`, `/pet evolution`, `/pet adventure`, `/pet encounter`, and `/pet settings`. The game includes level rewards, titles, an expanded shop, achievement cosmetics, up to five decor slots, milestone-preserving journal views, postcards, selectable visitors, timed visitor encounters, and six timed destinations whose deterministic rewards never expire. Adventures remain compatible with normal care and award objects/stories—not Sparks. Stats decay gently with a capped catch-up period; the pet never dies, leaves, loses purchases, or demands a streak. V1 state migrates in place, while writes remain atomic and coordinated across concurrent pi sessions.
 
@@ -152,25 +152,21 @@ All 27 Piwi-owned tools render compact call and result cards: action + target, o
 
 Three levers, from coarse to fine:
 
-- **Install scope** — `pi install ./TUI -l` registers the package in the project's `.pi/settings.json` (team-shareable); a global install applies everywhere. If a package is in both, the project entry wins.
+- **Install scope** — `pi install npm:piwi-tui -l` registers the package in the project's `.pi/settings.json` (team-shareable); a global install applies everywhere. If a package is in both, the project entry wins.
 - **`pi config`** — the enable/disable TUI. It starts in global settings; press **Tab** to switch to project-local (or launch `pi config -l`). Toggle any extension, prompt, skill or theme on/off per scope — this is how you turn one feature off in just one project, without uninstalling. Works for both installed packages and loose dropped-in files.
-- **Filtering in settings** — the object form of a package entry narrows what loads with globs and `!exclude` / `+include` / `-exclude` paths, e.g. `{ "source": "…/TUI", "extensions": ["extensions/*.ts", "!extensions/guard.ts"] }`.
+- **Filtering in settings** — the object form of a package entry narrows what loads with globs and exclusions, e.g. `{ "source": "npm:piwi-tui", "extensions": ["extensions/*.ts", "!extensions/guard.ts"] }`.
 
 ---
 
-## Not bundled (install directly)
+## Optional companion package
 
-Two Piwi capabilities are better consumed as their own upstream packages than re-implemented here:
+**MCP tools** are intentionally not bundled. Pi has no built-in MCP; the de-facto adapter is:
 
-- **Processes** — a background-process panel. Install the maintained extension:
-  ```sh
-  pi install npm:@aliou/pi-processes
-  ```
-- **Browser automation / MCP tools** — Piwi shipped Playwright and a code-index MCP. pi *intentionally* has no built-in MCP (its docs say so); the de-facto adapter is
-  ```sh
-  pi install npm:pi-mcp-adapter
-  ```
-  It reads `mcpServers` config from `~/.config/mcp/mcp.json` (shared), `~/.pi/agent/mcp.json` (pi-global), `.mcp.json` (project, committable), and `.pi/mcp.json` (pi-project override); by default every MCP tool funnels through ONE ~200-token proxy tool (promote hot ones via `directTools`), and it adds `/mcp`, `/mcp setup`, `/mcp tools`, and `/mcp-auth`.
+```sh
+pi install npm:pi-mcp-adapter
+```
+
+It reads `mcpServers` config from `~/.config/mcp/mcp.json` (shared), `~/.pi/agent/mcp.json` (pi-global), `.mcp.json` (project, committable), and `.pi/mcp.json` (pi-project override); by default every MCP tool funnels through ONE ~200-token proxy tool (promote hot ones via `directTools`), and it adds `/mcp`, `/mcp setup`, `/mcp tools`, and `/mcp-auth`.
 
 ---
 

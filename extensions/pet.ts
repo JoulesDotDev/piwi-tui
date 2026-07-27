@@ -287,7 +287,7 @@ function defaultState(): PetState {
   const timestamp = now();
   return {
     version: STATE_VERSION,
-    name: 'Companion',
+    name: 'Piwi',
     named: false,
     species: 'pip',
     xp: 0,
@@ -353,7 +353,7 @@ function normalizeState(raw: unknown): PetState {
   return {
     version: STATE_VERSION,
     name: typeof value.name === 'string' && sanitizeName(value.name) ? sanitizeName(value.name) : base.name,
-    named: typeof value.named === 'boolean' ? value.named : typeof value.name === 'string' && !['Pip', 'Companion'].includes(sanitizeName(value.name)),
+    named: typeof value.named === 'boolean' ? value.named : typeof value.name === 'string' && !['Pip', 'Piwi', 'Companion'].includes(sanitizeName(value.name)),
     species: 'pip',
     xp: Number.isFinite(value.xp) ? Math.max(0, Math.floor(value.xp!)) : base.xp,
     sparks: Number.isFinite(value.sparks) ? Math.max(0, Math.floor(value.sparks!)) : base.sparks,
@@ -1060,10 +1060,14 @@ export default function petExtension(pi: ExtensionAPI): void {
       ctx.ui.notify('Visit `/pet` in interactive mode to name your new companion first.', 'warning');
       return false;
     }
-    const answer = await ctx.ui.input('Your new companion has arrived — choose a name', 'Name');
-    const name = answer ? sanitizeName(answer) : '';
-    if (!name || name.toLowerCase() === 'name') {
+    const answer = await ctx.ui.input('Your new companion is Piwi — choose a name or press Enter to keep it', 'Piwi');
+    if (answer === undefined) {
       ctx.ui.notify('Your companion will wait here until you choose a name.', 'info');
+      return false;
+    }
+    const name = sanitizeName(answer) || state.name;
+    if (name.toLowerCase() === 'name') {
+      ctx.ui.notify('Please choose a real name, or press Enter to keep Piwi.', 'info');
       return false;
     }
     const adopted = await update((draft) => {

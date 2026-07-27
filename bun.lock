@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "piwi-tui-extensions",
+      "name": "piwi-tui",
       "dependencies": {
         "@aliou/pi-processes": "^0.9.4",
         "mammoth": "^1.12.0",

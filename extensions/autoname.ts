@@ -2,7 +2,7 @@
  * autoname — give each new session a readable title from its first message.
  *
  * pi doesn't title sessions automatically (only manual rename in the selector, or
- * programmatic setSessionName). Piwi named every conversation, so this ports that.
+ * programmatic setSessionName). This fills that gap with a local heuristic.
  * Heuristic and zero-cost — no extra model call. Drop-in, no dependencies.
  */
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
