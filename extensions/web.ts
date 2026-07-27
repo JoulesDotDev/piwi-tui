@@ -6,7 +6,8 @@
  *
  *   { "search": "brave" | "exa",           // which engine web_search uses
  *     "keys": { "brave": "...", "exa": "...", "jina": "..." },
- *     "proxy": { "https": "http://proxy:8080", "http": "http://proxy:8080" } }
+ *     "proxy": { "https": "http://proxy:8080", "http": "http://proxy:8080",
+ *                "useDefaultCredentials": true } }
  *
  * Web proxy priority is config, HTTPS_PROXY, then HTTP_PROXY. Keys fall back to
  * BRAVE_API_KEY, EXA_API_KEY, and JINA_API_KEY. Jina's key is
@@ -15,6 +16,7 @@
 import { defineTool, getAgentDir, truncateHead, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { Box, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -22,7 +24,7 @@ interface WebConfig {
   search?: 'brave' | 'exa';
   keys?: { brave?: string; exa?: string; jina?: string };
   /** Used only by web_search/web_fetch; explicit config overrides proxy environment variables. */
-  proxy?: { http?: string; https?: string };
+  proxy?: { http?: string; https?: string; useDefaultCredentials?: boolean };
 }
 
 function config(): WebConfig {
@@ -35,18 +37,19 @@ function config(): WebConfig {
 const braveKey = (c: WebConfig): string | undefined => c.keys?.brave || process.env.BRAVE_API_KEY;
 const exaKey = (c: WebConfig): string | undefined => c.keys?.exa || process.env.EXA_API_KEY;
 const jinaKey = (c: WebConfig): string | undefined => c.keys?.jina || process.env.JINA_API_KEY;
-function webProxy(c: WebConfig): string | undefined {
+interface WebProxy { url: string; useDefaultCredentials: boolean }
+function webProxy(c: WebConfig): WebProxy | undefined {
   const proxy = c.proxy?.https || c.proxy?.http || process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
   if (!proxy) return undefined;
   try {
     const url = new URL(proxy);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('unsupported protocol');
-    return url.toString();
+    return { url: url.toString(), useDefaultCredentials: c.proxy?.useDefaultCredentials === true };
   } catch { throw new Error('web search proxy must be a valid http(s) URL.'); }
 }
 type ProxyFetchInit = RequestInit & { proxy?: string };
-const proxiedFetch = (url: string, init: RequestInit, proxy: string | undefined): Promise<Response> =>
-  fetch(url, { ...init, ...(proxy ? { proxy } : {}) } as ProxyFetchInit);
+const proxiedFetch = (url: string, init: RequestInit, proxy: WebProxy | undefined): Promise<Response> =>
+  fetch(url, { ...init, ...(proxy ? { proxy: proxy.url } : {}) } as ProxyFetchInit);
 
 const MAX_TRANSCRIPT_CHARS = 12_000;
 const clipTranscript = (text: string): { text: string; truncated: boolean } => text.length > MAX_TRANSCRIPT_CHARS
@@ -93,29 +96,108 @@ async function limitedText(res: Response, maxBytes = 2_000_000): Promise<string>
   return new TextDecoder().decode(bytes);
 }
 
+interface TextResponse { ok: boolean; status: number; body: string }
+const POWERSHELL_PROXY_REQUEST = String.raw`
+$ErrorActionPreference = 'Stop'
+$headers = @{}
+(ConvertFrom-Json $env:PIWI_WEB_HEADERS).PSObject.Properties | ForEach-Object { $headers[$_.Name] = [string]$_.Value }
+$contentType = $headers['Content-Type']
+if ($contentType) { $headers.Remove('Content-Type') }
+$params = @{
+  Uri = $env:PIWI_WEB_URL
+  Method = $env:PIWI_WEB_METHOD
+  Headers = $headers
+  Proxy = $env:PIWI_WEB_PROXY
+  ProxyUseDefaultCredentials = $true
+  TimeoutSec = 60
+  UseBasicParsing = $true
+}
+if ($contentType) { $params.ContentType = $contentType }
+if ($env:PIWI_WEB_BODY) { $params.Body = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:PIWI_WEB_BODY)) }
+$response = Invoke-WebRequest @params
+$bytes = [Text.Encoding]::UTF8.GetBytes([string]$response.Content)
+@{ status = [int]$response.StatusCode; body = [Convert]::ToBase64String($bytes) } | ConvertTo-Json -Compress
+`;
+
+function powershellProxyRequest(url: string, init: RequestInit, proxy: WebProxy, maxBytes: number): Promise<TextResponse> {
+  return new Promise((resolve, reject) => {
+    const headers = Object.fromEntries(new Headers(init.headers).entries());
+    const body = typeof init.body === 'string' ? Buffer.from(init.body, 'utf8').toString('base64') : '';
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', POWERSHELL_PROXY_REQUEST], {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        PIWI_WEB_URL: url,
+        PIWI_WEB_METHOD: init.method ?? 'GET',
+        PIWI_WEB_HEADERS: JSON.stringify(headers),
+        PIWI_WEB_BODY: body,
+        PIWI_WEB_PROXY: proxy.url,
+      },
+    });
+    const stdout: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderr = '';
+    let settled = false;
+    const finish = (error?: Error, response?: TextResponse): void => {
+      if (settled) return;
+      settled = true;
+      init.signal?.removeEventListener('abort', abort);
+      if (error) reject(error); else resolve(response!);
+    };
+    const abort = (): void => { child.kill(); finish(new Error('Web request cancelled or timed out.')); };
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > Math.ceil(maxBytes * 1.5) + 16_384) { child.kill(); finish(new Error(`Response exceeds ${maxBytes} bytes.`)); }
+      else stdout.push(chunk);
+    });
+    child.stderr.on('data', (chunk: Buffer) => { if (stderr.length < 4_000) stderr += chunk.toString('utf8'); });
+    child.on('error', (error) => finish(error));
+    child.on('close', (code) => {
+      if (settled) return;
+      if (code !== 0) return finish(new Error(`Windows proxy request failed: ${cleanEvidence(stderr, 1000) || `PowerShell exited ${code}`}`));
+      try {
+        const parsed = JSON.parse(Buffer.concat(stdout).toString('utf8').trim()) as { status?: number; body?: string };
+        const bytes = Buffer.from(parsed.body ?? '', 'base64');
+        if (bytes.length > maxBytes) return finish(new Error(`Response exceeds ${maxBytes} bytes.`));
+        const status = Number(parsed.status ?? 0);
+        finish(undefined, { ok: status >= 200 && status < 300, status, body: bytes.toString('utf8') });
+      } catch (error) { finish(new Error(`Could not parse Windows proxy response: ${(error as Error).message}`)); }
+    });
+    if (init.signal?.aborted) abort();
+    else init.signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+async function requestText(url: string, init: RequestInit, proxy: WebProxy | undefined, maxBytes = 2_000_000): Promise<TextResponse> {
+  if (process.platform === 'win32' && proxy?.useDefaultCredentials) return powershellProxyRequest(url, init, proxy, maxBytes);
+  const response = await proxiedFetch(url, init, proxy);
+  return { ok: response.ok, status: response.status, body: await limitedText(response, maxBytes) };
+}
+
 interface Hit {
   title: string;
   url: string;
   snippet: string;
 }
 
-async function braveSearch(key: string, query: string, count: number, signal: AbortSignal | undefined, proxy: string | undefined): Promise<Hit[]> {
+async function braveSearch(key: string, query: string, count: number, signal: AbortSignal | undefined, proxy: WebProxy | undefined): Promise<Hit[]> {
   const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}`;
-  const res = await proxiedFetch(url, { headers: { Accept: 'application/json', 'X-Subscription-Token': key }, signal: withTimeout(signal, 15000) }, proxy);
-  const body = await limitedText(res);
+  const res = await requestText(url, { headers: { Accept: 'application/json', 'X-Subscription-Token': key }, signal: withTimeout(signal, 15000) }, proxy);
+  const body = res.body;
   if (!res.ok) throw new Error(`Brave search failed (${res.status}): ${body.slice(0, 200)}`);
   const json = JSON.parse(body) as { web?: { results?: Array<{ title?: string; url?: string; description?: string }> } };
   return (json.web?.results ?? []).filter((r) => r.url).slice(0, count).map((r) => ({ title: (stripHtml(r.title ?? '') || cleanEvidence(r.url!, 300)).slice(0, 300), url: cleanEvidence(r.url!, 1500), snippet: stripHtml(r.description ?? '').slice(0, 500) }));
 }
 
-async function exaSearch(key: string, query: string, count: number, signal: AbortSignal | undefined, proxy: string | undefined): Promise<Hit[]> {
-  const res = await proxiedFetch('https://api.exa.ai/search', {
+async function exaSearch(key: string, query: string, count: number, signal: AbortSignal | undefined, proxy: WebProxy | undefined): Promise<Hit[]> {
+  const res = await requestText('https://api.exa.ai/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': key },
     body: JSON.stringify({ query, numResults: count, contents: { text: { maxCharacters: 400 } } }),
     signal: withTimeout(signal, 15000),
   }, proxy);
-  const responseBody = await limitedText(res);
+  const responseBody = res.body;
   if (!res.ok) throw new Error(`Exa search failed (${res.status}): ${responseBody.slice(0, 200)}`);
   const json = JSON.parse(responseBody) as { results?: Array<{ title?: string; url?: string; text?: string }> };
   return (json.results ?? []).filter((r) => r.url).slice(0, count).map((r) => ({ title: cleanEvidence(r.title ?? r.url!, 300), url: cleanEvidence(r.url!, 1500), snippet: cleanEvidence(r.text ?? '', 500) }));
@@ -199,9 +281,9 @@ export default function webExtension(pi: ExtensionAPI): void {
         const c = config();
         const key = jinaKey(c);
         if (key) headers.Authorization = `Bearer ${key}`;
-        const res = await proxiedFetch(`https://r.jina.ai/${target}`, { headers, signal: withTimeout(signal, 30000) }, webProxy(c));
+        const res = await requestText(`https://r.jina.ai/${target}`, { headers, signal: withTimeout(signal, 30000) }, webProxy(c));
         if (!res.ok) throw new Error(`Fetch failed (${res.status}) for ${target}.`);
-        const md = (await limitedText(res)).trim();
+        const md = res.body.trim();
         if (!md) throw new Error(`No readable content at ${target}.`);
         const clipped = truncateHead(md);
         const compact = clipTranscript(clipped.content);

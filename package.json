@@ -1,6 +1,6 @@
 {
   "name": "piwi-tui",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Pi + Wiki: a playful, safe, full-featured TUI extension pack for pi.dev.",
   "keywords": ["pi-package", "pi.dev", "tui", "coding-agent", "piwi"],
   "author": "JoulesDotDev",
