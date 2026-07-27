@@ -1,0 +1,33 @@
+{
+  "name": "piwi-tui",
+  "version": "1.0.0",
+  "description": "A playful, safe, full-featured pi.dev TUI extension package.",
+  "keywords": ["pi-package", "pi.dev", "tui", "piwi"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JoulesDotDev/piwi-tui.git"
+  },
+  "type": "module",
+  "scripts": {
+    "check": "bun scripts/check.ts",
+    "test:tui": "bun scripts/tui-render-test.ts"
+  },
+  "pi": {
+    "extensions": ["./extensions"],
+    "prompts": ["./prompts"],
+    "themes": ["./themes"]
+  },
+  "comment": "Runtime dependencies are only for wiki document extraction. Plain md/markdown/txt/text/csv/tsv/json/log/rst needs none. For local-path installs, run `bun install` to extract pdf/docx/pptx/xlsx/odt/odp/ods. Install with `pi install ./TUI` or `-l` for one project.",
+  "dependencies": {
+    "@aliou/pi-processes": "^0.9.4",
+    "mammoth": "^1.12.0",
+    "officeparser": "^7.3.0",
+    "unpdf": "^1.6.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  }
+}
