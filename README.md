@@ -1,6 +1,6 @@
 # Piwi extensions for pi.dev (TUI)
 
-Portable Piwi-inspired capabilities, repackaged as a [pi.dev](https://pi.dev) extension package plus two blue themes. Extensions are single TypeScript files with no local imports. Dependency-free files can be copied directly; keep `wiki.ts` in this package (or symlink it) for document-extraction dependencies, and keep `subagent.ts` beside `web.ts`/`datetime.ts` for helper web/time tools.
+Portable Piwi-inspired capabilities, repackaged as a [pi.dev](https://pi.dev) extension package plus paired pastel dark/light themes. Extensions are single TypeScript files with no local imports. Dependency-free files can be copied directly; keep `wiki.ts` in this package (or symlink it) for document-extraction dependencies, and keep `subagent.ts` beside `web.ts`/`datetime.ts` for helper web/time tools.
 
 A guiding rule: **this package never replaces pi's main system prompt.** Enabled tools add concise descriptions, snippets, and focused `promptGuidelines` bullets to pi's generated prompt. Memory and context-status features may also prepend clearly labelled synthetic context before model calls; `sub_agent` starts separate helpers with a small read-only system appendix. Nothing here makes the model "act like Piwi" — it adds capabilities and targeted usage guidance.
 
@@ -86,7 +86,11 @@ No build step either way — pi loads the TypeScript directly. Contributors can 
 
 ### Themes (themes/)
 
-`piwi-theme` (deep plum, dark) and `piwi-theme-light`. Activate through `/settings`. Both are first-class Playful Piwi themes: every custom view and widget is designed and checked in both modes.
+`piwi-theme` (pastel dark) and `piwi-theme-light`. Activate through `/settings`. Both are first-class Playful Piwi themes: every custom view and widget is designed and checked in both modes.
+
+### Tool cards
+
+All 27 Piwi-owned tools render compact call and result cards: action + target, one useful outcome, and only decision-relevant metadata such as progress, scope, counts, or destination. Large web/process evidence is bounded and labelled untrusted. Card call/success/error states are width-tested in both themes; model-visible tool semantics remain unchanged.
 
 ### Command reference
 
@@ -136,7 +140,7 @@ No build step either way — pi loads the TypeScript directly. Contributors can 
 
 `/pet` opens the interactive nook. Direct commands include `/pet show|hide|status|help`, `/pet profile`, `/pet name`, `/pet care`, `/pet shop`, `/pet collection`, `/pet achievements`, `/pet journal`, `/pet evolution`, `/pet adventure`, `/pet encounter`, and `/pet settings`. The game includes level rewards, titles, an expanded shop, achievement cosmetics, up to five decor slots, milestone-preserving journal views, postcards, selectable visitors, timed visitor encounters, and six timed destinations whose deterministic rewards never expire. Adventures remain compatible with normal care and award objects/stories—not Sparks. Stats decay gently with a capped catch-up period; the pet never dies, leaves, loses purchases, or demands a streak. V1 state migrates in place, while writes remain atomic and coordinated across concurrent pi sessions.
 
-**Guard** — `guard.ts` is a confirmation layer, **not a sandbox**. It realpath-checks structured `read`/`write`/`edit` targets, confirms secret reads and outside-project access, and heuristically scans built-in `bash` command strings. Risky access fails closed when no dialog UI exists. Dynamic shell behavior (globs, sourced scripts, substitutions, environment-derived paths) and unrelated custom tools remain outside this heuristic. It starts enabled each session; `/guard off` enables session-scoped YOLO mode, `/guard on` restores it, and `/guard status` inspects it. A visible `YOLO` footer marker remains while disabled.
+**Guard** — `guard.ts` is a confirmation layer, **not a sandbox**. It realpath-checks structured `read`/`write`/`edit` targets, confirms secret reads and outside-project access, and heuristically scans built-in `bash` command strings. Risky access fails closed when no dialog UI exists. Dynamic shell behavior (globs, sourced scripts, substitutions, environment-derived paths) and unrelated custom tools remain outside this heuristic; Piwi's `process start` uses the same command check as built-in `bash`. It starts enabled each session; `/guard off` enables session-scoped YOLO mode, `/guard on` restores it, and `/guard status` inspects it. A visible `YOLO` footer marker remains while disabled.
 
 **Project data** stays under `<project>/.pi/`: `MEMORY.md`, `TODO.md`, `agenda/`, `plans/`, `wiki/`, and `skills/`. Wiki imports are stored as untrusted evidence and are excluded from wiki search unless `include_sources:true` is explicit. Review before committing: wiki sources may contain full confidential documents, memory may contain personal/project details, and skills can include executable instructions. Global state/config lives under pi's agent directory (`MEMORY.md`, `pet.json`, `web.json`, and authored skills). Protect `web.json` permissions because it contains plaintext API keys.
 
