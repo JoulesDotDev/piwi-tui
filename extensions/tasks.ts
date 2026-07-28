@@ -18,7 +18,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 class AgendaToolCard {
   constructor(private readonly title: string, private readonly lines: unknown[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
-  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`◆ ${this.title}`)), ...this.lines.map((value) => { const line = String(value ?? ''); return this.theme.fg('text', line.length > 500 ? `${line.slice(0, 497)}…` : line); })].join('\n'), 0, 0)); return box.render(width); }
+  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`# ${this.title}`)), ...this.lines.map((value) => { const line = String(value ?? ''); return this.theme.fg('text', line.length > 500 ? `${line.slice(0, 497)}…` : line); })].join('\n'), 0, 0)); return box.render(width); }
   invalidate(): void {}
 }
 interface Task {
@@ -477,7 +477,7 @@ export default function tasksExtension(pi: ExtensionAPI): void {
       }));
       const action = await ctx.ui.custom<TasksDashboardAction>((tui, theme, _keys, done) => {
         const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-          title: `◆ Tasks · ${visibleTasks().filter(({ task }) => !task.done).length} open`,
+          title: `# Tasks · ${visibleTasks().filter(({ task }) => !task.done).length} open`,
           empty: filter ? `No ${filter} tasks.` : 'No agenda tasks yet — press n to add one.',
           controls: ['↑↓ select · enter/space complete or reopen · n new', 'd delete · esc close'],
           onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
@@ -518,7 +518,7 @@ export default function tasksExtension(pi: ExtensionAPI): void {
       const rows = (): InteractiveRow[] => cards().map(({ card, column }) => ({ id: card.id, label: `${column.name} · ${card.text}`, marker: '•', detail: card.tags?.length ? `tags: ${card.tags.join(', ')}` : `id ${card.id}` }));
       const action = await ctx.ui.custom<BoardDashboardAction>((tui, theme, _keys, done) => {
         const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-          title: `◆ ${board?.name ?? boardName} · ${cards().length} cards`, empty: 'This board has no cards yet — press n to add one.',
+          title: `# ${board?.name ?? boardName} · ${cards().length} cards`, empty: 'This board has no cards yet — press n to add one.',
           controls: ['↑↓ select · enter move card · n new card', 'd delete card · esc close'],
           onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
           onInput: (data, selected) => {

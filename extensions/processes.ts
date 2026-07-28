@@ -22,7 +22,7 @@ class ProcessEventCard {
   constructor(private readonly event: ProcessEvent, private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
   render(width: number): string[] {
     if (width < 10) return [truncateToWidth(this.theme.fg(this.event.tone, this.event.title), Math.max(1, width), '')];
-    const lines = [this.theme.fg(this.event.tone, this.theme.bold(`● ${this.event.title}`)), ...this.event.lines.map((line) => this.theme.fg('text', clean(line, width < 40 ? 280 : 1200)))];
+    const lines = [this.theme.fg(this.event.tone, this.theme.bold(`# ${this.event.title}`)), ...this.event.lines.map((line) => this.theme.fg('text', clean(line, width < 40 ? 280 : 1200)))];
     const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content));
     box.addChild(new Text(lines.join('\n'), 0, 0));
     return box.render(width);
@@ -63,7 +63,7 @@ export default function processesExtension(pi: ExtensionAPI): void {
     await ctx.ui.custom<void>((tui, theme, _keys, done) => ({
       render(width: number) {
         const process = manager.get(id);
-        const heading = theme.fg('accent', theme.bold(`● ${process?.name ?? id} · logs`));
+        const heading = theme.fg('accent', theme.bold(`# ${process?.name ?? id} · logs`));
         const body = logText(id).split('\n').slice(-80).flatMap((line) => wrapTextWithAnsi(theme.fg('text', line), Math.max(1, width)));
         return [truncateToWidth(heading, width), '', ...body, '', ...renderControlHints(theme as InteractiveTheme, ['r refresh · esc back'], width)];
       },
@@ -83,10 +83,10 @@ export default function processesExtension(pi: ExtensionAPI): void {
           tone: live(process) ? 'success' : process.success ? 'muted' : 'error',
         }));
         let list: PiwiInteractiveList;
-        const refresh = (): void => { if (!open) return; list.setTitle(`● Processes · ${manager.list().filter(live).length} running`); list.setRows(rows(), list.selectedRow()?.id ?? selectedId); tui.requestRender(); };
+        const refresh = (): void => { if (!open) return; list.setTitle(`# Processes · ${manager.list().filter(live).length} running`); list.setRows(rows(), list.selectedRow()?.id ?? selectedId); tui.requestRender(); };
         const exit = (result: ProcessDashboardAction): void => { open = false; refreshDashboard = undefined; done(result); };
         list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-          title: `● Processes · ${manager.list().filter(live).length} running`, empty: 'No session processes are running; the process tool starts one with Guard coverage.',
+          title: `# Processes · ${manager.list().filter(live).length} running`, empty: 'No session processes are running; the process tool starts one with Guard coverage.',
           controls: ['↑↓ select · enter/l logs', 'i send input · s stop · esc close'],
           onClose: () => exit({ kind: 'close' }), requestRender: () => tui.requestRender(),
           onInput: (data, selected) => {

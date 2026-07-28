@@ -34,7 +34,7 @@ for (const [themeIndex, theme] of themes.entries()) {
     { id: 'one', label: 'A very long selected row with unicode 名称 and useful detail', marker: '○', right: 'today', detail: 'Visible selected-row details' },
     { id: 'two', label: 'Second row', marker: '✓', right: 'done', tone: 'success' },
   ], theme, {
-    title: '◆ Interactive test', empty: 'Nothing here.', maxRows: 5,
+    title: '# Interactive test', empty: 'Nothing here.', maxRows: 5,
     controls: ['↑↓ select · enter primary · n new · p pin', 'r reset · d delete · esc close'],
     onInput: (data, selected) => { action = `${data}:${selected?.id}`; },
     onClose: () => { closed = true; },
@@ -54,7 +54,7 @@ for (const [themeIndex, theme] of themes.entries()) {
   expect('escape closes', closed);
 
   let viewerClosed = false;
-  const viewer = new PiwiTextViewer('◇ Viewer', Array.from({ length: 40 }, (_, i) => `Line ${i + 1}`).join('\n'), theme, () => { viewerClosed = true; }, 8);
+  const viewer = new PiwiTextViewer('# Viewer', Array.from({ length: 40 }, (_, i) => `Line ${i + 1}`).join('\n'), theme, () => { viewerClosed = true; }, 8);
   for (const width of [10, 24, 60]) {
     const lines = viewer.render(width);
     expect(`viewer width ${width}`, lines.every((line) => visibleWidth(line) <= width));

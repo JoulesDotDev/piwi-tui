@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
  */
 class WikiToolCard {
   constructor(private readonly title: string, private readonly lines: unknown[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
-  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`⌂ Wiki · ${this.title}`)), ...this.lines.map((value) => { const line = String(value ?? ''); return this.theme.fg('text', line.length > 500 ? `${line.slice(0, 497)}…` : line); })].join('\n'), 0, 0)); return box.render(width); }
+  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`# Wiki · ${this.title}`)), ...this.lines.map((value) => { const line = String(value ?? ''); return this.theme.fg('text', line.length > 500 ? `${line.slice(0, 497)}…` : line); })].join('\n'), 0, 0)); return box.render(width); }
   invalidate(): void {}
 }
 async function loadOptional<T>(name: string): Promise<T> {
@@ -535,7 +535,7 @@ export default function wikiExtension(pi: ExtensionAPI): void {
     assertInside(root, file);
     const text = readFileSync(file, 'utf8');
     await ctx.ui.custom<void>((tui, theme, _keys, done) => {
-      const viewer = new PiwiTextViewer(`⌂ ${page.replace(/\.md$/, '')}`, text, theme as InteractiveTheme, () => done(undefined));
+      const viewer = new PiwiTextViewer(`# ${page.replace(/\.md$/, '')}`, text, theme as InteractiveTheme, () => done(undefined));
       return { render: (width) => viewer.render(width), handleInput: (data) => { viewer.handleInput(data); tui.requestRender(); }, invalidate: () => viewer.invalidate() };
     });
   };
@@ -553,7 +553,7 @@ export default function wikiExtension(pi: ExtensionAPI): void {
       });
       const action = await ctx.ui.custom<{ kind: 'filter' | 'open'; page?: string } | { kind: 'close' }>((tui, theme, _keys, done) => {
         const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-          title: `⌂ Wiki · ${shown().length}${query ? ` matching "${query}"` : ' pages'}`,
+          title: `# Wiki · ${shown().length}${query ? ` matching "${query}"` : ' pages'}`,
           empty: query ? 'No wiki pages match this filter.' : 'No wiki pages yet.', controls: ['↑↓ select · enter open · / filter', 'esc close'],
           onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
           onInput: (data, selected) => {
@@ -575,7 +575,7 @@ export default function wikiExtension(pi: ExtensionAPI): void {
     }
   };
 
-  pi.registerEntryRenderer<{ pages: string[] }>('wiki-view', (entry, _options, theme) => entry.data ? new Text([theme.fg('accent', theme.bold(`⌂ Wiki · ${entry.data.pages.length} pages`)), ...entry.data.pages.map((page) => theme.fg('text', `• ${page.replace(/\.md$/, '')}`))].join('\n'), 0, 0) : undefined);
+  pi.registerEntryRenderer<{ pages: string[] }>('wiki-view', (entry, _options, theme) => entry.data ? new Text([theme.fg('accent', theme.bold(`# Wiki · ${entry.data.pages.length} pages`)), ...entry.data.pages.map((page) => theme.fg('text', `• ${page.replace(/\.md$/, '')}`))].join('\n'), 0, 0) : undefined);
   pi.registerCommand('wiki', {
     description: 'Browse and open project wiki pages',
     getArgumentCompletions: (prefix) => {

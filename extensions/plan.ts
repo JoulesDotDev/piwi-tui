@@ -18,7 +18,7 @@ class PlanToolCard {
   constructor(private readonly title: string, private readonly lines: unknown[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
   render(width: number): string[] {
     const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content));
-    box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`◆ ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', String(line ?? '')))].join('\n'), 0, 0));
+    box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`# ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', String(line ?? '')))].join('\n'), 0, 0));
     return box.render(width);
   }
   invalidate(): void {}
@@ -285,7 +285,7 @@ export default function planExtension(pi: ExtensionAPI): void {
       });
       const action = await ctx.ui.custom<{ kind: 'toggle'; id: string } | { kind: 'close' }>((tui, theme, _keys, done) => {
         const list = new PiwiInteractiveList(rows, theme as InteractiveTheme, {
-          title: `◆ ${title} · ${rows.filter((row) => row.marker === '✓').length}/${rows.length}`,
+          title: `# ${title} · ${rows.filter((row) => row.marker === '✓').length}/${rows.length}`,
           empty: 'This plan has no checklist steps.', controls: ['↑↓ select · enter/space complete or reopen', 'esc close'],
           onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
           onInput: (data, selected) => {

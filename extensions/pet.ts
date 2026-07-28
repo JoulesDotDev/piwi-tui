@@ -779,18 +779,14 @@ class PetDashboard {
     const w = Math.max(1, width);
     if (w < 30) {
       return [
-        truncateToWidth(this.theme.fg('accent', `${this.state.name} · Lv ${levelForXp(this.state.xp)}`), w, ''),
+        truncateToWidth(this.theme.fg('accent', this.theme.bold(`# ${this.state.name.toUpperCase()}'S NOOK`)), w, ''),
         truncateToWidth(this.theme.fg('muted', `F${Math.round(this.state.stats.fullness)} J${Math.round(this.state.stats.joy)} E${Math.round(this.state.stats.energy)} · *${this.state.sparks}`), w, ''),
         truncateToWidth(`${this.theme.fg('accent', '›')} ${this.theme.bold(DASHBOARD_ACTIONS[this.selected]!.label)}`, w, ''),
         ...renderControlHints(this.theme as InteractiveTheme, ['↑↓ select · enter open · esc close'], w),
       ];
     }
-    const inner = Math.max(20, Math.min(72, w - 4));
-    const line = (content = ''): string => {
-      const clipped = truncateToWidth(content, inner, '');
-      return truncateToWidth(`│ ${clipped}${' '.repeat(Math.max(0, inner - visibleWidth(clipped)))} │`, w, '');
-    };
-    const border = (left: string, fill: string, right: string): string => truncateToWidth(`${left}${fill.repeat(inner + 2)}${right}`, w, '');
+    const inner = Math.max(20, Math.min(76, w));
+    const line = (content = ''): string => truncateToWidth(content, inner, '');
     const level = levelForXp(this.state.xp);
     const floor = levelFloor(level);
     const target = nextLevelAt(level);
@@ -800,18 +796,18 @@ class PetDashboard {
     const statColor = (value: number): PetColor => value < 25 ? 'error' : value < 45 ? 'warning' : value >= 75 ? 'success' : 'text';
     const statLine = (label: string, value: number): string => this.theme.fg(statColor(value), `${label.padEnd(8)} [${statBar(value, 12)}] ${Math.round(value)}`);
     const lines = [
-      this.theme.fg('borderMuted', border('╭', '─', '╮')),
-      line(this.theme.fg('accent', this.theme.bold(`${this.state.name.toUpperCase()}'S NOOK`)) + this.theme.fg('muted', '   ') + this.theme.fg('accent', `* ${this.state.sparks} Sparks`) + this.theme.fg('muted', ` · ${this.state.outputRemainder}/${OUTPUT_PER_SPARK} to next`)),
-      line(),
+      line(this.theme.fg('accent', this.theme.bold(`# ${this.state.name.toUpperCase()}'S NOOK`)) + this.theme.fg('muted', '   ') + this.theme.fg('accent', `* ${this.state.sparks} Sparks`) + this.theme.fg('muted', ` · ${this.state.outputRemainder}/${OUTPUT_PER_SPARK} to next`)),
+      this.theme.fg('borderMuted', '─'.repeat(inner)),
+      '',
       line(this.theme.fg('accent', art[0]) + (ownedDecor ? this.theme.fg('success', `   nook ${ownedDecor}`) : '')),
       line(this.theme.fg('accent', art[1]) + `     ${this.state.name} · ${growthStage(this.state)} · Level ${level} · ${moodFor(this.state)}`),
       line(this.theme.fg('accent', art[2]) + `     XP [${statBar(levelPct, 16)}] ${Math.floor(levelPct)}%`),
       line(this.theme.fg('muted', `Personality  kind ${this.state.personality.kind} · curious ${this.state.personality.curious} · calm ${this.state.personality.calm}`)),
-      line(),
+      '',
       line(statLine('Fullness', this.state.stats.fullness)),
       line(statLine('Joy', this.state.stats.joy)),
       line(statLine('Energy', this.state.stats.energy)),
-      line(),
+      '',
     ];
     for (let i = 0; i < DASHBOARD_ACTIONS.length; i += 1) {
       const action = DASHBOARD_ACTIONS[i]!;
@@ -819,9 +815,8 @@ class PetDashboard {
       const text = `${prefix}${action.label.padEnd(14)} ${action.description}`;
       lines.push(line(i === this.selected ? this.theme.fg('text', this.theme.bg('selectedBg', this.theme.bold(text))) : this.theme.fg('muted', text)));
     }
-    lines.push(line(), line(this.theme.fg('dim', '1 Spark / 500 output · 1 XP / 1k output')));
+    lines.push('', line(this.theme.fg('dim', '1 Spark / 500 output · 1 XP / 1k output')));
     for (const hint of renderControlHints(this.theme as InteractiveTheme, ['↑↓ select · enter open · esc close'], inner)) lines.push(line(hint));
-    lines.push(this.theme.fg('borderMuted', border('╰', '─', '╯')));
     return lines;
   }
 

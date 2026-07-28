@@ -25,7 +25,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 class MemoryToolCard {
   constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
-  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`✦ Memory · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0)); return box.render(width); }
+  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`# Memory · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0)); return box.render(width); }
   invalidate(): void {}
 }
 const SOFT_LIMIT = 100;
@@ -258,9 +258,9 @@ export default function memoryExtension(pi: ExtensionAPI): void {
           ];
         };
         let list: PiwiInteractiveList;
-        const refresh = (preferred?: string): void => { list.setTitle(`✦ Memory · ${scope} · ${facts().length} facts`); list.setRows(rows(), preferred); tui.requestRender(); };
+        const refresh = (preferred?: string): void => { list.setTitle(`# Memory · ${scope} · ${facts().length} facts`); list.setRows(rows(), preferred); tui.requestRender(); };
         list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-          title: `✦ Memory · ${scope} · ${facts().length} facts`, empty: `No ${scope === 'all' ? 'accessible' : scope} memories.`,
+          title: `# Memory · ${scope} · ${facts().length} facts`, empty: `No ${scope === 'all' ? 'accessible' : scope} memories.`,
           controls: ['↑↓ select · p project · g global · a all', 'd forget selected · esc close'],
           onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
           onInput: (data, selected) => {

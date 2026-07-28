@@ -290,7 +290,7 @@ export class CounterDashboard implements Component {
   }
   render(width: number): string[] {
     const w = Math.max(20, width);
-    const lines = [this.theme.fg('accent', this.theme.bold(`▣ Counters · ${this.state.counters.length}`)), this.theme.fg('borderMuted', '─'.repeat(w))];
+    const lines = [this.theme.fg('accent', this.theme.bold(`# Counters · ${this.state.counters.length}`)), this.theme.fg('borderMuted', '─'.repeat(w))];
     if (!this.state.counters.length) lines.push(this.theme.fg('muted', '  No counters yet — press n to make one.'));
     const maxRows = 12;
     const start = Math.max(0, Math.min(this.selected - Math.floor(maxRows / 2), Math.max(0, this.state.counters.length - maxRows)));
@@ -334,7 +334,7 @@ export class CounterDashboard implements Component {
 export function pinnedCounterLines(state: CounterState, width: number, theme: DashboardTheme): string[] {
   const counters = state.counters.filter((counter) => counter.pinned).slice(0, MAX_PINNED);
   if (!counters.length) return [];
-  const heading = theme.fg('accent', theme.bold('▣ Counters'));
+  const heading = theme.fg('accent', theme.bold('# Counters'));
   const segments = counters.map((counter) => `${counter.name} ${counter.value.toLocaleString('en-US')}`);
   const lines: string[] = [];
   let current = heading;
@@ -362,7 +362,7 @@ export default function countersExtension(pi: ExtensionAPI): void {
   pi.registerEntryRenderer<CounterEntry>('counter-event', (entry, _options, theme) => {
     if (!entry.data) return undefined;
     const { name, value, action, amount } = entry.data;
-    if (action === 'help') return { render: (width) => [theme.fg('accent', theme.bold('▣ Counter commands')), theme.fg('text', name)].flatMap((line) => [truncateToWidth(line, width)]), invalidate() {} };
+    if (action === 'help') return { render: (width) => [theme.fg('accent', theme.bold('# Counter commands')), theme.fg('text', name)].flatMap((line) => [truncateToWidth(line, width)]), invalidate() {} };
     const icon = action === 'reset' ? '↺' : action === 'set' ? '◆' : (amount ?? 0) < 0 ? '▼' : '▲';
     const tone = action === 'reset' ? 'warning' : (amount ?? 0) < 0 ? 'muted' : 'accent';
     return { render: (width) => [truncateToWidth(`${theme.fg(tone, icon)} ${theme.fg('text', name)} ${theme.fg('muted', '·')} ${theme.fg('accent', (value ?? 0).toLocaleString('en-US'))}`, width)], invalidate() {} };

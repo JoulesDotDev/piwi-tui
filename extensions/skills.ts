@@ -18,7 +18,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 
 class SkillToolCard {
   constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
-  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`◇ Skills · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0)); return box.render(width); }
+  render(width: number): string[] { const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content)); box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`# Skills · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0)); return box.render(width); }
   invalidate(): void {}
 }
 function canonical(path: string): string {
@@ -204,7 +204,7 @@ export default function skillsExtension(pi: ExtensionAPI): void {
       const rows = (): InteractiveRow[] => shown().map((skill) => ({ id: `${skill.scope}:${skill.slug}`, label: skill.name, marker: skill.scope === 'global' ? 'G' : 'P', detail: skill.description || skill.slug }));
       const action = await ctx.ui.custom<{ kind: 'filter' | 'open'; id?: string } | { kind: 'close' }>((tui, theme, _keys, done) => {
         const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-          title: `◇ Skills · ${shown().length}${query ? ` matching "${query}"` : ''}`,
+          title: `# Skills · ${shown().length}${query ? ` matching "${query}"` : ''}`,
           empty: query ? 'No skills match this filter.' : 'No accessible skills.', controls: ['↑↓ select · enter open · / filter', 'esc close'],
           onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
           onInput: (data, selected) => {
@@ -228,7 +228,7 @@ export default function skillsExtension(pi: ExtensionAPI): void {
       const file = join(dirFor(skill.scope, ctx.cwd), skill.slug, 'SKILL.md');
       let text = ''; try { text = readFileSync(file, 'utf8'); } catch (error) { ctx.ui.notify((error as Error).message, 'warning'); continue; }
       await ctx.ui.custom<void>((innerTui, innerTheme, _innerKeys, close) => {
-        const viewer = new PiwiTextViewer(`◇ ${skill.name}`, text, innerTheme as InteractiveTheme, () => close(undefined));
+        const viewer = new PiwiTextViewer(`# ${skill.name}`, text, innerTheme as InteractiveTheme, () => close(undefined));
         return { render: (width) => viewer.render(width), handleInput: (key) => { viewer.handleInput(key); innerTui.requestRender(); }, invalidate: () => viewer.invalidate() };
       });
     }
@@ -236,7 +236,7 @@ export default function skillsExtension(pi: ExtensionAPI): void {
 
   pi.registerEntryRenderer<{ records: Array<{ name: string; description: string; scope: string }> }>('skills-view', (entry, _options, theme) => {
     if (!entry.data) return undefined;
-    const lines = [theme.fg('accent', theme.bold(`◇ Skills · ${entry.data.records.length}`)), ...entry.data.records.map((skill) => `${theme.fg('muted', skill.scope === 'global' ? 'G' : 'P')} ${theme.fg('text', skill.name)}${skill.description ? theme.fg('dim', ` · ${skill.description}`) : ''}`)];
+    const lines = [theme.fg('accent', theme.bold(`# Skills · ${entry.data.records.length}`)), ...entry.data.records.map((skill) => `${theme.fg('muted', skill.scope === 'global' ? 'G' : 'P')} ${theme.fg('text', skill.name)}${skill.description ? theme.fg('dim', ` · ${skill.description}`) : ''}`)];
     return new Text(lines.join('\n'), 0, 0);
   });
   pi.registerCommand('skills', {

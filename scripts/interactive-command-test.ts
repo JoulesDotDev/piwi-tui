@@ -82,6 +82,7 @@ try {
     expect(`/${name} opened interactive view`, capture);
     expect(`/${name} stays inline`, !capture!.overlay);
     const plain = capture!.lines.join(' ').replace(/\x1b\[[0-9;]*m/g, '');
+    expect(`/${name} uses a markdown-style heading`, plain.trimStart().startsWith('#'));
     expect(`/${name} shows navigation`, plain.includes('↑↓') || name === 'processes');
     expect(`/${name} shows close key`, plain.includes('esc close') || plain.includes('esc back'));
     if (name === 'todo') {
@@ -139,6 +140,8 @@ try {
   const petDone = lifecycleEvents.indexOf('done:care');
   expect('pet closes before opening its menu', petDone >= 0 && lifecycleEvents.indexOf('select', petDone + 1) > petDone);
   expect('pet reopens inline', captures.length === petCaptureCount + 2 && captures.slice(petCaptureCount).every((capture) => !capture.overlay));
+  const petView = captures[petCaptureCount]!.lines.join('\n').replace(/\x1b\[[0-9;]*m/g, '');
+  expect('pet uses an open markdown-style layout', petView.trimStart().startsWith('#') && !/[╭╮╰╯│]/.test(petView));
 
   console.log('counter, todo, agenda, plan, process, memory, skill, and wiki inline command regressions passed');
 } finally {

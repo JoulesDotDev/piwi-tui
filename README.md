@@ -25,7 +25,7 @@ Pi keeps npm packages under its own agent directory and installs runtime depende
 Git remains an alternative:
 
 ```sh
-pi install git:github.com/JoulesDotDev/piwi-tui@v1.2.3
+pi install git:github.com/JoulesDotDev/piwi-tui@v1.2.4
 ```
 
 Then open `/settings` in pi and select `piwi-theme` (or `piwi-theme-light`). Manage installs with `pi list`, `pi remove npm:piwi-tui`, and **`pi config`** (enable/disable individual resources — see _Per-project control_).
@@ -99,7 +99,7 @@ npm config delete ignore-scripts
 
 ### Themes (themes/)
 
-`piwi-theme` (pastel dark) and `piwi-theme-light`. Activate through `/settings`. Both are first-class Playful Piwi themes: interactive views use distinct heading, selected-row, status-marker, metadata, and highlighted-key roles, and every custom view and widget is checked in both modes.
+`piwi-theme` (pastel dark) and `piwi-theme-light`. Activate through `/settings`. Both are first-class Playful Piwi themes: interactive views use clean Markdown-style `#` headings plus distinct selected-row, status-marker, metadata, and highlighted-key roles, and every custom view and widget is checked in both modes.
 
 ### Tool cards
 

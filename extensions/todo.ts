@@ -28,7 +28,7 @@ class TodoToolCard {
   constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
   render(width: number): string[] {
     const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content));
-    box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`Todo · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0));
+    box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`# Todo · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0));
     return box.render(width);
   }
   invalidate(): void {}
@@ -196,7 +196,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
     const data = entry.data;
     if (!data) return undefined;
     if (data.empty) return new Text(theme.fg('muted', 'No active project todo.'), 0, 0);
-    const lines = [theme.fg('accent', theme.bold('Todo'))];
+    const lines = [theme.fg('accent', theme.bold('# Todo'))];
     for (const [index, item] of data.items.entries()) {
       const marker = item.done ? theme.fg('success', '✓') : theme.fg('muted', '○');
       const text = item.done ? theme.fg('text', item.text) + theme.fg('dim', ' · done') : theme.fg('text', item.text);
@@ -222,7 +222,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
         }));
         const items = current?.items ?? [];
         const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-          title: `Todo · ${items.filter((item) => item.done).length}/${items.length}`,
+          title: `# Todo · ${items.filter((item) => item.done).length}/${items.length}`,
           empty: 'No checklist yet — press n to create one.',
           controls: ['↑↓ select · enter/space toggle · n add', 'r reopen · c clear · esc close'],
           onClose: () => done({ kind: 'close' }),
