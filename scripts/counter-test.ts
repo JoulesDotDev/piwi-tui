@@ -71,7 +71,7 @@ try {
   const renderedState: CounterState = { version: 1, counters: Array.from({ length: 15 }, (_, index) => ({ id: `c-${index}`, name: index === 0 ? '名称✨ counter' : `Counter ${index}`, value: index, pinned: index < 2, createdAt: 1, updatedAt: 1 })) };
   const dashboard = new CounterDashboard(renderedState, theme, {
     adjust: async () => renderedState,
-    create: async () => renderedState,
+    create() {}, filter() {},
     reset: async () => renderedState,
     remove: async () => renderedState,
     pin: async () => renderedState,
@@ -81,6 +81,17 @@ try {
     expect(`dashboard width ${width}`, dashboard.render(width).every((line) => visibleWidth(line) <= width));
     expect(`pinned width ${width}`, pinnedCounterLines(renderedState, width, theme).every((line) => visibleWidth(line) <= width));
   }
+  const adjustments: number[] = [];
+  const keyDashboard = new CounterDashboard(renderedState, theme, {
+    adjust: async (_id, amount) => { adjustments.push(amount); return renderedState; },
+    create() {}, filter() {}, reset() {}, remove() {}, pin: async () => renderedState,
+    close() {}, render() {}, error() {},
+  });
+  for (const key of ['\r', ' ', '+', '-']) keyDashboard.handleInput(key);
+  expect('enter space plus and minus do not adjust', adjustments.length === 0);
+  keyDashboard.handleInput('\x1b[D'); await Promise.resolve();
+  keyDashboard.handleInput('\x1b[C'); await Promise.resolve();
+  expect('only left and right arrows adjust', adjustments.join(',') === '-1,1');
 
   // Real command registration/execution against an isolated global agent dir.
   process.env.PI_CODING_AGENT_DIR = dir;

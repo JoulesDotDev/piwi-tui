@@ -280,9 +280,9 @@ export class CounterDashboard implements Component {
     if (this.busy) return;
     if (matchesKey(data, Key.up) && this.selected > 0) this.selected -= 1;
     else if (matchesKey(data, Key.down) && this.selected < this.state.counters.length - 1) this.selected += 1;
-    else if (matchesKey(data, Key.left) || data === '-') {
+    else if (matchesKey(data, Key.left)) {
       const item = this.selectedItem(); if (item) return this.run(() => this.actions.adjust(item.id, -1));
-    } else if (matchesKey(data, Key.right) || data === '+' || matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
+    } else if (matchesKey(data, Key.right)) {
       const item = this.selectedItem(); if (item) return this.run(() => this.actions.adjust(item.id, 1));
     } else if (data === '/') return this.actions.filter(this.selectedItem()?.id);
     else if (data === 'n') return this.actions.create(this.selectedItem()?.id);
@@ -322,7 +322,7 @@ export class CounterDashboard implements Component {
       lines.push(row);
     }
     const controls = [
-      this.busy ? 'Saving…' : '↑↓ select · ←/→ −/+ · enter +1 · / filter · n new · p pin',
+      this.busy ? 'Saving…' : '↑↓ select · ←/→ adjust · / filter · n new · p pin',
       'r reset · d delete · esc close',
     ];
     return [...lines.map((line) => truncateToWidth(line, width)), ...renderViewFooter(this.theme, controls, width)];
