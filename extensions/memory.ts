@@ -284,7 +284,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         },
       });
       return list;
-    });
+    }, { overlay: true });
   };
 
   pi.registerCommand('memory', {

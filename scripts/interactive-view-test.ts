@@ -13,6 +13,18 @@ const themes: InteractiveTheme[] = [
   { fg: (_color, text) => ansi(34, text), bg: (_color, text) => ansi(47, text), bold: (text) => ansi(1, text) },
 ];
 const strip = (text: string): string => text.replace(/\x1b\[[0-9;]*m/g, '');
+const roleTheme: InteractiveTheme = {
+  fg: (color, text) => `<${color}>${text}</${color}>`,
+  bg: (color, text) => `<${color}>${text}</${color}>`,
+  bold: (text) => `<bold>${text}</bold>`,
+};
+const styledHints = renderControlHints(roleTheme, ['enter open · d delete'], 200).join('');
+expect('control keys use a distinct visual role', styledHints.includes('<customMessageLabel><bold>enter</bold>') && styledHints.includes('<dim>open</dim>') && styledHints.includes('<borderMuted> · </borderMuted>'));
+const hierarchyList = new PiwiInteractiveList([{ id: 'one', label: 'Selected', marker: '✓', right: 'done', tone: 'success' }], roleTheme, {
+  title: 'Heading', empty: 'Empty', controls: ['enter open'], onInput() {}, onClose() {},
+});
+const hierarchyOutput = hierarchyList.render(200).join('\n');
+expect('selected row applies background to each styled segment', (hierarchyOutput.match(/<selectedBg>/g)?.length ?? 0) >= 3 && hierarchyOutput.includes('<success><selectedBg>✓ '));
 
 for (const [themeIndex, theme] of themes.entries()) {
   let closed = false;
@@ -65,10 +77,14 @@ for (const file of interactive) {
   const source = readFileSync(join(root, 'extensions', file), 'utf8');
   expect(`${file} uses shared visible-control system`, source.includes('interactive-view.ts'));
   expect(`${file} names close control`, /esc (?:close|back)/.test(source));
+  const customViews = source.match(/ctx\.ui\.custom/g)?.length ?? 0;
+  const focusedOverlays = source.match(/\{ overlay: true \}/g)?.length ?? 0;
+  expect(`${file} custom views retain focus across nested UI`, customViews > 0 && focusedOverlays >= customViews);
 }
 for (const file of ['pet.ts']) {
   const source = readFileSync(join(root, 'extensions', file), 'utf8');
-  expect(`${file} keeps controls visible`, /Up\/Down · Enter · Esc/.test(source));
+  expect(`${file} keeps controls visible`, source.includes("['↑↓ select · enter open · esc close']"));
+  expect(`${file} uses a focus-safe overlay`, source.includes('{ overlay: true }'));
 }
 for (const file of ['doctor.ts', 'locks.ts']) {
   const source = readFileSync(join(root, 'extensions', file), 'utf8');

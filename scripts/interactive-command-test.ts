@@ -38,20 +38,20 @@ const theme = {
   bg: (_color: string, text: string) => `\x1b[44m${text}\x1b[0m`,
   bold: (text: string) => `\x1b[1m${text}\x1b[0m`,
 };
-const captures: Array<{ command: string; lines: string[] }> = [];
+const captures: Array<{ command: string; lines: string[]; overlay: boolean }> = [];
 let currentCommand = '';
 const ui = {
   notify() {}, setWidget() {},
   confirm: async () => false,
   input: async () => undefined,
   select: async (_title: string, values: string[]) => values[0],
-  custom: async (factory: Function) => new Promise<void>((resolvePromise) => {
+  custom: async (factory: Function, options?: { overlay?: boolean }) => new Promise<void>((resolvePromise) => {
     let resolved = false;
     const done = () => { if (!resolved) { resolved = true; resolvePromise(); } };
     const tui = { requestRender() {} };
     const component = factory(tui, theme, {}, done);
     const lines = component.render(32);
-    captures.push({ command: currentCommand, lines });
+    captures.push({ command: currentCommand, lines, overlay: options?.overlay === true });
     expect(`${currentCommand} width`, lines.every((line: string) => visibleWidth(line) <= 32));
     component.handleInput?.('\x1b');
     if (!resolved) done();
@@ -72,9 +72,14 @@ try {
   for (const [name] of invocations) {
     const capture = captures.find((item) => item.command === name);
     expect(`/${name} opened interactive view`, capture);
+    expect(`/${name} keeps focus across nested UI`, capture!.overlay);
     const plain = capture!.lines.join(' ').replace(/\x1b\[[0-9;]*m/g, '');
     expect(`/${name} shows navigation`, plain.includes('↑↓') || name === 'processes');
     expect(`/${name} shows close key`, plain.includes('esc close') || plain.includes('esc back'));
+    if (name === 'todo') {
+      expect('/todo uses generic heading', plain.includes('Todo · 1/2'));
+      expect('/todo omits checklist icon and custom title', !plain.includes('☑') && !plain.includes('Demo todo'));
+    }
   }
   console.log('counter, todo, agenda, plan, process, memory, skill, and wiki interactive command regressions passed');
 } finally {

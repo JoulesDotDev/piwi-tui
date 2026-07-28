@@ -217,11 +217,11 @@ export default function skillsExtension(pi: ExtensionAPI): void {
           void ctx.ui.custom<void>((innerTui, innerTheme, _innerKeys, close) => {
             const viewer = new PiwiTextViewer(`◇ ${skill.name}`, text, innerTheme as InteractiveTheme, () => close(undefined));
             return { render: (width) => viewer.render(width), handleInput: (key) => { viewer.handleInput(key); innerTui.requestRender(); }, invalidate: () => viewer.invalidate() };
-          }).then(refresh);
+          }, { overlay: true }).then(refresh);
         },
       });
       return list;
-    });
+    }, { overlay: true });
   };
 
   pi.registerEntryRenderer<{ records: Array<{ name: string; description: string; scope: string }> }>('skills-view', (entry, _options, theme) => {

@@ -537,7 +537,7 @@ export default function wikiExtension(pi: ExtensionAPI): void {
     await ctx.ui.custom<void>((tui, theme, _keys, done) => {
       const viewer = new PiwiTextViewer(`⌂ ${page.replace(/\.md$/, '')}`, text, theme as InteractiveTheme, () => done(undefined));
       return { render: (width) => viewer.render(width), handleInput: (data) => { viewer.handleInput(data); tui.requestRender(); }, invalidate: () => viewer.invalidate() };
-    });
+    }, { overlay: true });
   };
   const openWikiLibrary = async (ctx: ExtensionCommandContext): Promise<void> => {
     const pages = pageFiles(ctx.cwd).sort();
@@ -563,7 +563,7 @@ export default function wikiExtension(pi: ExtensionAPI): void {
         },
       });
       return list;
-    });
+    }, { overlay: true });
   };
 
   pi.registerEntryRenderer<{ pages: string[] }>('wiki-view', (entry, _options, theme) => entry.data ? new Text([theme.fg('accent', theme.bold(`⌂ Wiki · ${entry.data.pages.length} pages`)), ...entry.data.pages.map((page) => theme.fg('text', `• ${page.replace(/\.md$/, '')}`))].join('\n'), 0, 0) : undefined);

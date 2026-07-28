@@ -22,7 +22,7 @@ class TodoToolCard {
   constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
   render(width: number): string[] {
     const box = new Box(1, 1, (content) => this.theme.bg('customMessageBg', content));
-    box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`☑ Todo · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0));
+    box.addChild(new Text([this.theme.fg('accent', this.theme.bold(`Todo · ${this.title}`)), ...this.lines.map((line) => this.theme.fg('text', line))].join('\n'), 0, 0));
     return box.render(width);
   }
   invalidate(): void {}
@@ -119,7 +119,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
         const todo = d?.todo;
         const done = todo?.items.filter((item) => item.done).length ?? 0;
         const title = d?.completed ? 'complete' : d?.cleared ? 'cleared' : todo ? 'updated' : 'status';
-        return new TodoToolCard(context.isError ? 'unavailable' : title, todo ? [todo.title, `${done}/${todo.items.length} complete`] : ['No active checklist'], theme);
+        return new TodoToolCard(context.isError ? 'unavailable' : title, todo ? [`${done}/${todo.items.length} complete`] : ['No active checklist'], theme);
       },
       description:
         'Manage the ONE current-work checklist: immediate execution steps for this active run. ' +
@@ -149,7 +149,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
           if (!todo) return { content: [{ type: 'text' as const, text: 'No project todo to clear.' }], details: { cleared: false } };
           if (!ctx.hasUI) throw new Error('Clearing the project todo requires interactive approval.');
           const done = todo.items.filter((item) => item.done).length;
-          const ok = await ctx.ui.confirm('Clear the project todo?', `${todo.title} · ${done}/${todo.items.length} complete\n\nThis removes .pi/TODO.md.`, { signal });
+          const ok = await ctx.ui.confirm('Clear the project todo?', `${done}/${todo.items.length} complete\n\nThis removes .pi/TODO.md.`, { signal });
           if (!ok) return { content: [{ type: 'text' as const, text: 'Project todo retained.' }], details: { todo, cleared: false } };
           return locked(file, () => {
             rmSync(file, { force: true });
@@ -190,10 +190,10 @@ export default function todoExtension(pi: ExtensionAPI): void {
     const data = entry.data;
     if (!data) return undefined;
     if (data.empty) return new Text(theme.fg('muted', 'No active project todo.'), 0, 0);
-    const lines = [theme.fg('accent', theme.bold(`✓ ${data.title}`))];
+    const lines = [theme.fg('accent', theme.bold('Todo'))];
     for (const [index, item] of data.items.entries()) {
       const marker = item.done ? theme.fg('success', '✓') : theme.fg('muted', '○');
-      const text = item.done ? theme.fg('text', item.text) + theme.fg('dim', ' · done') : item.text;
+      const text = item.done ? theme.fg('text', item.text) + theme.fg('dim', ' · done') : theme.fg('text', item.text);
       lines.push(`${marker} ${index + 1}. ${text}`);
     }
     return new Text(lines.join('\n'), 0, 0);
@@ -217,9 +217,13 @@ export default function todoExtension(pi: ExtensionAPI): void {
         tone: item.done ? 'success' : 'text',
       }));
       let list: PiwiInteractiveList;
+      const heading = (): string => {
+        const items = current?.items ?? [];
+        return `Todo · ${items.filter((item) => item.done).length}/${items.length}`;
+      };
       const refresh = (preferred?: string): void => {
         current = readTodo(file);
-        list.setTitle(`☑ ${current?.title ?? 'Project todo'} · ${current?.items.length ?? 0}`);
+        list.setTitle(heading());
         list.setRows(rows(), preferred);
         tui.requestRender();
       };
@@ -230,7 +234,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
         void action().catch((error) => ctx.ui.notify((error as Error).message, 'warning')).finally(() => { busy = false; refresh(); });
       };
       list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-        title: `☑ ${current?.title ?? 'Project todo'} · ${current?.items.length ?? 0}`,
+        title: heading(),
         empty: 'No checklist yet — press n to create one.',
         controls: ['↑↓ select · enter/space toggle · n add', 'r reopen · c clear · esc close'],
         onClose: () => done(undefined),
@@ -255,18 +259,12 @@ export default function todoExtension(pi: ExtensionAPI): void {
           }
           if (data === 'n') return run(async () => {
             let todo = readTodo(file);
-            let title = todo?.title;
-            if (!todo) {
-              const enteredTitle = await ctx.ui.input('New checklist', 'Checklist title');
-              if (enteredTitle === undefined) return;
-              title = clean(enteredTitle, 80) || 'Quick work';
-            }
             const entered = await ctx.ui.input(todo ? 'Add a todo step' : 'First todo step', 'What needs doing?');
             if (entered === undefined) return;
             const text = clean(entered);
             if (!text) return;
             await locked(file, () => {
-              todo = readTodo(file) ?? { title: title ?? 'Quick work', items: [] };
+              todo = readTodo(file) ?? { title: 'Project todo', items: [] };
               if (todo.items.length >= 50) throw new Error('A quick checklist can have at most 50 steps.');
               todo.items.push({ text, done: false });
               atomicWrite(file, todo);
@@ -275,13 +273,13 @@ export default function todoExtension(pi: ExtensionAPI): void {
           if (data === 'c') return run(async () => {
             const todo = readTodo(file); if (!todo) return;
             const count = todo.items.filter((item) => item.done).length;
-            if (!(await ctx.ui.confirm('Clear the project todo?', `${todo.title} · ${count}/${todo.items.length} complete\n\nThis removes .pi/TODO.md.`))) return;
+            if (!(await ctx.ui.confirm('Clear the project todo?', `${count}/${todo.items.length} complete\n\nThis removes .pi/TODO.md.`))) return;
             await locked(file, () => rmSync(file, { force: true }));
           });
         },
       });
       return list;
-    });
+    }, { overlay: true });
   };
 
   pi.registerCommand('todo', {
@@ -299,7 +297,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
         const todo = readTodo(file);
         if (!todo) return void ctx.ui.notify('No project todo to clear.', 'info');
         const done = todo.items.filter((item) => item.done).length;
-        const ok = await ctx.ui.confirm('Clear the project todo?', `${todo.title} · ${done}/${todo.items.length} complete\n\nThis removes .pi/TODO.md.`);
+        const ok = await ctx.ui.confirm('Clear the project todo?', `${done}/${todo.items.length} complete\n\nThis removes .pi/TODO.md.`);
         if (!ok) return;
         await locked(file, () => rmSync(file, { force: true }));
         pi.appendEntry<TodoView>('todo-view', { title: todo.title, items: [], empty: true });

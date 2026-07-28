@@ -282,18 +282,33 @@ export class CounterDashboard implements Component {
   }
   render(width: number): string[] {
     const w = Math.max(20, width);
-    const lines = [this.theme.fg('accent', this.theme.bold(`▣ Counters · ${this.state.counters.length}`)), ''];
+    const lines = [this.theme.fg('accent', this.theme.bold(`▣ Counters · ${this.state.counters.length}`)), this.theme.fg('borderMuted', '─'.repeat(w))];
     if (!this.state.counters.length) lines.push(this.theme.fg('muted', '  No counters yet — press n to make one.'));
     const maxRows = 12;
     const start = Math.max(0, Math.min(this.selected - Math.floor(maxRows / 2), Math.max(0, this.state.counters.length - maxRows)));
     for (let index = start; index < Math.min(this.state.counters.length, start + maxRows); index += 1) {
       const item = this.state.counters[index]!;
-      const prefix = index === this.selected ? '› ' : '  ';
-      const suffix = `${item.pinned ? ' ◆' : ''}  ${item.value.toLocaleString('en-US')}`;
+      const selected = index === this.selected;
+      const prefix = selected ? '› ' : '  ';
+      const pin = item.pinned ? ' ◆' : '';
+      const value = item.value.toLocaleString('en-US');
+      const suffix = `${pin}  ${value}`;
       const nameWidth = Math.max(1, w - visibleWidth(prefix) - visibleWidth(suffix));
       const name = truncateToWidth(item.name, nameWidth, '…');
-      const row = `${prefix}${name}${' '.repeat(Math.max(0, nameWidth - visibleWidth(name)))}${suffix}`;
-      lines.push(index === this.selected ? this.theme.bg('selectedBg', this.theme.fg('text', row)) : this.theme.fg(item.pinned ? 'accent' : 'text', row));
+      const paddedName = `${name}${' '.repeat(Math.max(0, nameWidth - visibleWidth(name)))}`;
+      const paint = (color: string, text: string, bold = false): string => {
+        const content = bold ? this.theme.bold(text) : text;
+        return this.theme.fg(color, selected ? this.theme.bg('selectedBg', content) : content);
+      };
+      const row = truncateToWidth(
+        `${paint(selected ? 'accent' : 'dim', prefix)}` +
+        `${paint('text', paddedName, selected)}` +
+        `${pin ? paint('customMessageLabel', pin) : ''}` +
+        `${paint('accent', `  ${value}`)}`,
+        w,
+        '',
+      );
+      lines.push(row);
     }
     lines.push('');
     const controls = [
@@ -388,7 +403,7 @@ export default function countersExtension(pi: ExtensionAPI): void {
         error: (message) => ctx.ui.notify(message, 'warning'),
       });
       return dashboard;
-    });
+    }, { overlay: true });
   };
 
   pi.registerCommand('counter', {

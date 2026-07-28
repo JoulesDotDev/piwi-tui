@@ -520,7 +520,7 @@ export default function tasksExtension(pi: ExtensionAPI): void {
         },
       });
       return list;
-    });
+    }, { overlay: true });
   };
 
   const openBoardDashboard = async (boardName: string, ctx: ExtensionCommandContext): Promise<void> => {
@@ -581,7 +581,7 @@ export default function tasksExtension(pi: ExtensionAPI): void {
         },
       });
       return list;
-    });
+    }, { overlay: true });
   };
 
   // ---------- themed views (/tasks, /board) — interactive in TUI, transcript fallback elsewhere ----------

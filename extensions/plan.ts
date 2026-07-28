@@ -313,7 +313,7 @@ export default function planExtension(pi: ExtensionAPI): void {
         },
       });
       return list;
-    });
+    }, { overlay: true });
   };
 
   pi.registerCommand('plan', {

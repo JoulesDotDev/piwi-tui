@@ -69,7 +69,7 @@ export default function processesExtension(pi: ExtensionAPI): void {
       },
       handleInput(data: string) { if (matchesKey(data, Key.escape) || data === 'q') done(undefined); else if (data === 'r') tui.requestRender(); },
       invalidate() {},
-    }));
+    }), { overlay: true });
   };
   const openProcessDashboard = async (initialId: string | undefined, ctx: ExtensionCommandContext): Promise<void> => {
     await ctx.ui.custom<void>((tui, theme, _keys, done) => {
@@ -109,7 +109,7 @@ export default function processesExtension(pi: ExtensionAPI): void {
       if (initialId) list.setRows(rows(), initialId);
       refreshDashboard = refresh;
       return { render: (width) => list.render(width), handleInput: (data) => list.handleInput(data), invalidate: () => list.invalidate() };
-    });
+    }, { overlay: true });
     refreshDashboard = undefined;
   };
 

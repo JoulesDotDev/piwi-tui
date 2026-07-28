@@ -48,8 +48,11 @@ export class PiwiInteractiveList implements Component {
   }
   render(width: number): string[] {
     const w = Math.max(1, width);
-    const lines: string[] = [truncateToWidth(this.theme.fg('accent', this.theme.bold(this.options.title)), w), ''];
-    if (!this.rows.length) lines.push(...wrapTextWithAnsi(this.theme.fg('muted', this.options.empty), w));
+    const lines: string[] = [
+      truncateToWidth(this.theme.fg('accent', this.theme.bold(this.options.title)), w),
+      this.theme.fg('borderMuted', '─'.repeat(w)),
+    ];
+    if (!this.rows.length) lines.push(...wrapTextWithAnsi(`${this.theme.fg('customMessageLabel', '·')} ${this.theme.fg('muted', this.options.empty)}`, w));
     const maxRows = Math.max(3, this.options.maxRows ?? 12);
     const start = Math.max(0, Math.min(this.selected - Math.floor(maxRows / 2), Math.max(0, this.rows.length - maxRows)));
     for (let index = start; index < Math.min(this.rows.length, start + maxRows); index += 1) {
@@ -61,11 +64,22 @@ export class PiwiInteractiveList implements Component {
       const labelWidth = Math.max(1, w - visibleWidth(prefix) - visibleWidth(marker) - visibleWidth(right));
       const label = truncateToWidth(row.label, labelWidth, '…');
       const paddedLabel = `${label}${' '.repeat(Math.max(0, labelWidth - visibleWidth(label)))}`;
-      const plain = truncateToWidth(`${prefix}${marker}${paddedLabel}${right}`, w, '');
-      const colored = this.theme.fg(row.tone ?? 'text', plain);
-      lines.push(index === this.selected ? this.theme.bg('selectedBg', colored) : colored);
-      if (index === this.selected && row.detail) {
-        for (const detail of wrapTextWithAnsi(this.theme.fg('dim', `    ${row.detail}`), w)) lines.push(detail);
+      const selected = index === this.selected;
+      const paint = (color: string, text: string, bold = false): string => {
+        const content = bold ? this.theme.bold(text) : text;
+        return this.theme.fg(color, selected ? this.theme.bg('selectedBg', content) : content);
+      };
+      const colored = truncateToWidth(
+        `${paint(selected ? 'accent' : 'dim', prefix)}` +
+        `${marker ? paint(row.tone ?? 'customMessageLabel', marker) : ''}` +
+        `${paint('text', paddedLabel, selected)}` +
+        `${right ? paint('muted', right) : ''}`,
+        w,
+        '',
+      );
+      lines.push(colored);
+      if (selected && row.detail) {
+        for (const detail of wrapTextWithAnsi(`${this.theme.fg('borderAccent', '  ↳')} ${this.theme.fg('dim', row.detail)}`, w)) lines.push(detail);
       }
     }
     lines.push('');
@@ -77,7 +91,15 @@ export class PiwiInteractiveList implements Component {
 
 export function renderControlHints(theme: InteractiveTheme, controls: string[], width: number): string[] {
   const w = Math.max(1, width);
-  return controls.flatMap((line) => wrapTextWithAnsi(theme.fg('dim', line), w));
+  return controls.flatMap((line) => {
+    const styled = line.split(' · ').map((segment) => {
+      const match = segment.match(/^(\S+)(?:\s+(.*))?$/);
+      if (!match) return theme.fg('dim', segment);
+      const key = theme.fg('customMessageLabel', theme.bold(match[1]));
+      return match[2] ? `${key} ${theme.fg('dim', match[2])}` : key;
+    }).join(theme.fg('borderMuted', ' · '));
+    return wrapTextWithAnsi(styled, w);
+  });
 }
 
 export class PiwiTextViewer implements Component {

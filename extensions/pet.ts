@@ -13,6 +13,7 @@
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { matchesKey, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import { renderControlHints, type InteractiveTheme } from '../lib/interactive-view.ts';
 import {
   closeSync,
   mkdirSync,
@@ -780,7 +781,8 @@ class PetDashboard {
       return [
         truncateToWidth(this.theme.fg('accent', `${this.state.name} · Lv ${levelForXp(this.state.xp)}`), w, ''),
         truncateToWidth(this.theme.fg('muted', `F${Math.round(this.state.stats.fullness)} J${Math.round(this.state.stats.joy)} E${Math.round(this.state.stats.energy)} · *${this.state.sparks}`), w, ''),
-        truncateToWidth(this.theme.fg('dim', `> ${DASHBOARD_ACTIONS[this.selected]!.label} · Enter · Esc`), w, ''),
+        truncateToWidth(`${this.theme.fg('accent', '›')} ${this.theme.bold(DASHBOARD_ACTIONS[this.selected]!.label)}`, w, ''),
+        ...renderControlHints(this.theme as InteractiveTheme, ['↑↓ select · enter open · esc close'], w),
       ];
     }
     const inner = Math.max(20, Math.min(72, w - 4));
@@ -815,9 +817,10 @@ class PetDashboard {
       const action = DASHBOARD_ACTIONS[i]!;
       const prefix = i === this.selected ? '> ' : '  ';
       const text = `${prefix}${action.label.padEnd(14)} ${action.description}`;
-      lines.push(line(i === this.selected ? this.theme.bg('selectedBg', this.theme.fg('text', this.theme.bold(text))) : this.theme.fg('muted', text)));
+      lines.push(line(i === this.selected ? this.theme.fg('text', this.theme.bg('selectedBg', this.theme.bold(text))) : this.theme.fg('muted', text)));
     }
-    lines.push(line(), line(this.theme.fg('dim', '1 Spark / 500 output · 1 XP / 1k · Up/Down · Enter · Esc')));
+    lines.push(line(), line(this.theme.fg('dim', '1 Spark / 500 output · 1 XP / 1k output')));
+    for (const hint of renderControlHints(this.theme as InteractiveTheme, ['↑↓ select · enter open · esc close'], inner)) lines.push(line(hint));
     lines.push(this.theme.fg('borderMuted', border('╰', '─', '╯')));
     return lines;
   }
@@ -1271,7 +1274,7 @@ export default function petExtension(pi: ExtensionAPI): void {
           invalidate: () => dashboard.invalidate(),
           handleInput: (data) => { dashboard.handleInput(data); tui.requestRender(); },
         };
-      });
+      }, { overlay: true });
       if (!action || action === 'close') return;
       if (action === 'care') await careMenu(ctx);
       else if (action === 'shop') await shopMenu(ctx);
