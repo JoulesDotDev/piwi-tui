@@ -12,8 +12,8 @@
  */
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { matchesKey, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
-import { renderControlHints, type InteractiveTheme } from '../lib/interactive-view.ts';
+import { matchesKey, truncateToWidth } from '@earendil-works/pi-tui';
+import { renderViewFooter, renderViewHeader, type InteractiveTheme } from '../lib/interactive-view.ts';
 import {
   closeSync,
   mkdirSync,
@@ -779,13 +779,14 @@ class PetDashboard {
     const w = Math.max(1, width);
     if (w < 30) {
       return [
-        truncateToWidth(this.theme.fg('accent', this.theme.bold(`# ${this.state.name.toUpperCase()}'S NOOK`)), w, ''),
+        ...renderViewHeader(this.theme as InteractiveTheme, `# ${this.state.name.toUpperCase()}'S NOOK`, w),
         truncateToWidth(this.theme.fg('muted', `F${Math.round(this.state.stats.fullness)} J${Math.round(this.state.stats.joy)} E${Math.round(this.state.stats.energy)} · *${this.state.sparks}`), w, ''),
+        '',
         truncateToWidth(`${this.theme.fg('accent', '›')} ${this.theme.bold(DASHBOARD_ACTIONS[this.selected]!.label)}`, w, ''),
-        ...renderControlHints(this.theme as InteractiveTheme, ['↑↓ select · enter open · esc close'], w),
+        ...renderViewFooter(this.theme as InteractiveTheme, ['↑↓ select · enter open · esc close'], w),
       ];
     }
-    const inner = Math.max(20, Math.min(76, w));
+    const inner = w;
     const line = (content = ''): string => truncateToWidth(content, inner, '');
     const level = levelForXp(this.state.xp);
     const floor = levelFloor(level);
@@ -796,8 +797,8 @@ class PetDashboard {
     const statColor = (value: number): PetColor => value < 25 ? 'error' : value < 45 ? 'warning' : value >= 75 ? 'success' : 'text';
     const statLine = (label: string, value: number): string => this.theme.fg(statColor(value), `${label.padEnd(8)} [${statBar(value, 12)}] ${Math.round(value)}`);
     const lines = [
-      line(this.theme.fg('accent', this.theme.bold(`# ${this.state.name.toUpperCase()}'S NOOK`)) + this.theme.fg('muted', '   ') + this.theme.fg('accent', `* ${this.state.sparks} Sparks`) + this.theme.fg('muted', ` · ${this.state.outputRemainder}/${OUTPUT_PER_SPARK} to next`)),
-      this.theme.fg('borderMuted', '─'.repeat(inner)),
+      ...renderViewHeader(this.theme as InteractiveTheme, `# ${this.state.name.toUpperCase()}'S NOOK`, inner),
+      line(this.theme.fg('accent', `* ${this.state.sparks} Sparks`) + this.theme.fg('muted', ` · ${this.state.outputRemainder}/${OUTPUT_PER_SPARK} to next`)),
       '',
       line(this.theme.fg('accent', art[0]) + (ownedDecor ? this.theme.fg('success', `   nook ${ownedDecor}`) : '')),
       line(this.theme.fg('accent', art[1]) + `     ${this.state.name} · ${growthStage(this.state)} · Level ${level} · ${moodFor(this.state)}`),
@@ -816,7 +817,7 @@ class PetDashboard {
       lines.push(line(i === this.selected ? this.theme.fg('text', this.theme.bg('selectedBg', this.theme.bold(text))) : this.theme.fg('muted', text)));
     }
     lines.push('', line(this.theme.fg('dim', '1 Spark / 500 output · 1 XP / 1k output')));
-    for (const hint of renderControlHints(this.theme as InteractiveTheme, ['↑↓ select · enter open · esc close'], inner)) lines.push(line(hint));
+    lines.push(...renderViewFooter(this.theme as InteractiveTheme, ['↑↓ select · enter open · esc close'], inner));
     return lines;
   }
 

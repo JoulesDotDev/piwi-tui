@@ -2,7 +2,7 @@
 import { defineTool, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { StringEnum } from '@earendil-works/pi-ai';
 import { Box, Key, Text, matchesKey, truncateToWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
-import { PiwiInteractiveList, renderControlHints, type InteractiveRow, type InteractiveTheme } from '../lib/interactive-view.ts';
+import { PiwiInteractiveList, renderViewFooter, renderViewHeader, type InteractiveRow, type InteractiveTheme } from '../lib/interactive-view.ts';
 import { Type } from 'typebox';
 import { ProcessManager, type ProcessInfo } from '@aliou/pi-processes/src/manager';
 import { appendFileSync, readFileSync } from 'node:fs';
@@ -63,34 +63,35 @@ export default function processesExtension(pi: ExtensionAPI): void {
     await ctx.ui.custom<void>((tui, theme, _keys, done) => ({
       render(width: number) {
         const process = manager.get(id);
-        const heading = theme.fg('accent', theme.bold(`# ${process?.name ?? id} · logs`));
         const body = logText(id).split('\n').slice(-80).flatMap((line) => wrapTextWithAnsi(theme.fg('text', line), Math.max(1, width)));
-        return [truncateToWidth(heading, width), '', ...body, '', ...renderControlHints(theme as InteractiveTheme, ['r refresh · esc back'], width)];
+        return [...renderViewHeader(theme as InteractiveTheme, `# ${process?.name ?? id} · logs`, width), ...body, ...renderViewFooter(theme as InteractiveTheme, ['r refresh · esc back'], width)];
       },
       handleInput(data: string) { if (matchesKey(data, Key.escape) || data === 'q') done(undefined); else if (data === 'r') tui.requestRender(); },
       invalidate() {},
     }));
   };
-  type ProcessDashboardAction = { kind: 'logs' | 'input' | 'stop'; id: string } | { kind: 'close' };
+  type ProcessDashboardAction = { kind: 'logs' | 'input' | 'stop'; id: string } | { kind: 'filter' | 'close' };
   const openProcessDashboard = async (initialId: string | undefined, ctx: ExtensionCommandContext): Promise<void> => {
     let selectedId = initialId;
+    let query = '';
     while (true) {
       const action = await ctx.ui.custom<ProcessDashboardAction>((tui, theme, _keys, done) => {
         let open = true;
-        const rows = (): InteractiveRow[] => manager.list().map((process) => ({
+        const rows = (): InteractiveRow[] => manager.list().filter((process) => !query || `${process.name} ${process.id} ${process.command} ${process.status}`.toLowerCase().includes(query)).map((process) => ({
           id: process.id, label: process.name, marker: live(process) ? '●' : process.success ? '✓' : '×',
           right: live(process) ? age(process.startTime) : process.status, detail: `${clean(process.command, 300)} · ${process.id}`,
-          tone: live(process) ? 'success' : process.success ? 'muted' : 'error',
+          tone: process.status === 'terminating' || process.status === 'terminate_timeout' ? 'warning' : live(process) ? 'success' : process.success ? 'muted' : 'error',
         }));
         let list: PiwiInteractiveList;
-        const refresh = (): void => { if (!open) return; list.setTitle(`# Processes · ${manager.list().filter(live).length} running`); list.setRows(rows(), list.selectedRow()?.id ?? selectedId); tui.requestRender(); };
+        const refresh = (): void => { if (!open) return; list.setTitle(`# Processes · ${manager.list().filter(live).length} running${query ? ` · ${rows().length} matching "${query}"` : ''}`); list.setRows(rows(), list.selectedRow()?.id ?? selectedId); tui.requestRender(); };
         const exit = (result: ProcessDashboardAction): void => { open = false; refreshDashboard = undefined; done(result); };
         list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-          title: `# Processes · ${manager.list().filter(live).length} running`, empty: 'No session processes are running; the process tool starts one with Guard coverage.',
-          controls: ['↑↓ select · enter/l logs', 'i send input · s stop · esc close'],
+          title: `# Processes · ${manager.list().filter(live).length} running${query ? ` · ${rows().length} matching "${query}"` : ''}`, empty: query ? 'No processes match this filter.' : 'No session processes are running; the process tool starts one with Guard coverage.',
+          controls: ['↑↓ select · enter/l logs · / filter', 'i input · s stop · esc close'],
           onClose: () => exit({ kind: 'close' }), requestRender: () => tui.requestRender(),
           onInput: (data, selected) => {
             if ((matchesKey(data, Key.enter) || data === 'l') && selected) return exit({ kind: 'logs', id: selected.id });
+            if (data === '/') { selectedId = selected?.id ?? selectedId; return exit({ kind: 'filter' }); }
             if (data === 'i' && selected) return exit({ kind: 'input', id: selected.id });
             if (data === 's' && selected) return exit({ kind: 'stop', id: selected.id });
           },
@@ -101,6 +102,11 @@ export default function processesExtension(pi: ExtensionAPI): void {
       });
       refreshDashboard = undefined;
       if (!action || action.kind === 'close') return;
+      if (action.kind === 'filter') {
+        const value = await ctx.ui.input('Filter processes', 'Name, command, ID, or status contains…');
+        if (value !== undefined) query = clean(value, 120).toLowerCase();
+        continue;
+      }
       selectedId = action.id;
       if (action.kind === 'logs') await showLogs(ctx, action.id);
       else if (action.kind === 'input') {

@@ -236,6 +236,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   const openMemoryDashboard = async (initialScope: 'all' | Scope, ctx: ExtensionCommandContext): Promise<void> => {
     let scope = initialScope;
     let selectedId: string | undefined;
+    let query = '';
     const collect = (): { facts: Array<{ id: string; scope: Scope; fact: string }>; errors: Array<{ scope: Scope; message: string }> } => {
       const facts: Array<{ id: string; scope: Scope; fact: string }> = [];
       const errors: Array<{ scope: Scope; message: string }> = [];
@@ -248,23 +249,24 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       return { facts, errors };
     };
     while (true) {
-      const action = await ctx.ui.custom<{ kind: 'forget'; id: string } | { kind: 'close' }>((tui, theme, _keys, done) => {
-        const facts = () => collect().facts;
+      const action = await ctx.ui.custom<{ kind: 'forget'; id: string } | { kind: 'filter' | 'close' }>((tui, theme, _keys, done) => {
+        const facts = () => collect().facts.filter((item) => !query || `${item.fact} ${item.scope}`.toLowerCase().includes(query));
         const rows = (): InteractiveRow[] => {
           const result = collect();
           return [
-            ...result.facts.map((item) => ({ id: item.id, label: item.fact, marker: item.scope === 'global' ? 'G' : 'P', detail: item.scope === 'global' ? 'Available in every project' : 'This project only' })),
+            ...facts().map((item) => ({ id: item.id, label: item.fact, marker: item.scope === 'global' ? 'G' : 'P', detail: item.scope === 'global' ? 'Available in every project' : 'This project only' })),
             ...result.errors.map((error) => ({ id: `error:${error.scope}`, label: `Could not read ${error.scope} memory`, marker: '!', detail: error.message, tone: 'error' })),
           ];
         };
         let list: PiwiInteractiveList;
-        const refresh = (preferred?: string): void => { list.setTitle(`# Memory · ${scope} · ${facts().length} facts`); list.setRows(rows(), preferred); tui.requestRender(); };
+        const refresh = (preferred?: string): void => { list.setTitle(`# Memory · ${scope} · ${facts().length} facts${query ? ` · matching "${query}"` : ''}`); list.setRows(rows(), preferred); tui.requestRender(); };
         list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-          title: `# Memory · ${scope} · ${facts().length} facts`, empty: `No ${scope === 'all' ? 'accessible' : scope} memories.`,
-          controls: ['↑↓ select · p project · g global · a all', 'd forget selected · esc close'],
+          title: `# Memory · ${scope} · ${facts().length} facts${query ? ` · matching "${query}"` : ''}`, empty: query ? 'No memory facts match this filter.' : `No ${scope === 'all' ? 'accessible' : scope} memories.`,
+          controls: ['↑↓ select · / filter · p project · g global · a all', 'd forget selected · esc close'],
           onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
           onInput: (data, selected) => {
             if (selected) selectedId = selected.id;
+            if (data === '/') return done({ kind: 'filter' });
             if (data === 'p') { if (!ctx.isProjectTrusted()) return void ctx.ui.notify('Trust the project before viewing project memory.', 'warning'); scope = 'project'; return refresh(); }
             if (data === 'g') { scope = 'global'; return refresh(); }
             if (data === 'a') { scope = 'all'; return refresh(); }
@@ -275,6 +277,11 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         return list;
       });
       if (!action || action.kind === 'close') return;
+      if (action.kind === 'filter') {
+        const value = await ctx.ui.input('Filter memory', 'Fact or scope contains…');
+        if (value !== undefined) query = clean(value, 120).toLowerCase();
+        continue;
+      }
       selectedId = action.id;
       const item = collect().facts.find((fact) => fact.id === action.id); if (!item) continue;
       if (!(await ctx.ui.confirm(`Forget this ${item.scope} memory?`, item.fact))) continue;

@@ -199,7 +199,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
     const lines = [theme.fg('accent', theme.bold('# Todo'))];
     for (const [index, item] of data.items.entries()) {
       const marker = item.done ? theme.fg('success', '✓') : theme.fg('muted', '○');
-      const text = item.done ? theme.fg('text', item.text) + theme.fg('dim', ' · done') : theme.fg('text', item.text);
+      const text = item.done ? theme.fg('muted', item.text) + theme.fg('dim', ' · done') : theme.fg('text', item.text);
       lines.push(`${marker} ${index + 1}. ${text}`);
     }
     return new Text(lines.join('\n'), 0, 0);
@@ -218,7 +218,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
       const action = await ctx.ui.custom<TodoDashboardAction>((tui, theme, _keys, done) => {
         const rows = (): InteractiveRow[] => (current?.items ?? []).map((item, index) => ({
           id: String(index), label: item.text, marker: item.done ? '✓' : '○',
-          right: item.done ? 'done' : undefined, tone: item.done ? 'success' : 'text',
+          tone: item.done ? 'success' : 'text',
         }));
         const items = current?.items ?? [];
         const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {

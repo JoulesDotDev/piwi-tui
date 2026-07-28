@@ -276,26 +276,34 @@ export default function planExtension(pi: ExtensionAPI): void {
 
   const openPlanDashboard = async (file: string, ctx: ExtensionCommandContext): Promise<void> => {
     let preferredId: string | undefined;
+    let query = '';
     while (true) {
       const markdown = readPlan(ctx.cwd, file);
       const title = clean(markdown.split('\n').find((line) => line.startsWith('# '))?.slice(2) ?? file.replace(/\.md$/, ''), 100);
-      const rows = markdown.split('\n').flatMap((line, index): InteractiveRow[] => {
+      const allRows = markdown.split('\n').flatMap((line, index): InteractiveRow[] => {
         const match = /^- \[([ x])\] (.+)$/i.exec(line.trim());
         return match ? [{ id: String(index), label: clean(match[2]), marker: match[1].toLowerCase() === 'x' ? '✓' : '○', tone: match[1].toLowerCase() === 'x' ? 'success' : 'text' }] : [];
       });
-      const action = await ctx.ui.custom<{ kind: 'toggle'; id: string } | { kind: 'close' }>((tui, theme, _keys, done) => {
+      const rows = allRows.filter((row) => !query || row.label.toLowerCase().includes(query));
+      const action = await ctx.ui.custom<{ kind: 'toggle'; id: string } | { kind: 'filter' | 'close' }>((tui, theme, _keys, done) => {
         const list = new PiwiInteractiveList(rows, theme as InteractiveTheme, {
-          title: `# ${title} · ${rows.filter((row) => row.marker === '✓').length}/${rows.length}`,
-          empty: 'This plan has no checklist steps.', controls: ['↑↓ select · enter/space complete or reopen', 'esc close'],
+          title: `# ${title} · ${allRows.filter((row) => row.marker === '✓').length}/${allRows.length}${query ? ` · ${rows.length} matching "${query}"` : ''}`,
+          empty: query ? 'No plan steps match this filter.' : 'This plan has no checklist steps.', controls: ['↑↓ select · enter/space toggle · / filter', 'esc close'],
           onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
           onInput: (data, selected) => {
             if ((matchesKey(data, Key.enter) || matchesKey(data, Key.space)) && selected) done({ kind: 'toggle', id: selected.id });
+            else if (data === '/') { preferredId = selected?.id ?? preferredId; done({ kind: 'filter' }); }
           },
         });
         if (preferredId) list.setRows(rows, preferredId);
         return list;
       });
       if (!action || action.kind === 'close') return;
+      if (action.kind === 'filter') {
+        const value = await ctx.ui.input('Filter plan steps', 'Step text contains…');
+        if (value !== undefined) query = clean(value, 120).toLowerCase();
+        continue;
+      }
       preferredId = action.id;
       try {
         await planLock(ctx.cwd, () => {

@@ -460,29 +460,32 @@ export default function tasksExtension(pi: ExtensionAPI): void {
     }),
   );
 
-  type TasksDashboardAction = { kind: 'toggle' | 'delete'; id: string } | { kind: 'create' | 'close' };
-  type BoardDashboardAction = { kind: 'move' | 'delete'; id: string } | { kind: 'create' | 'close' };
+  type TasksDashboardAction = { kind: 'toggle' | 'delete'; id: string } | { kind: 'create' | 'filter' | 'close' };
+  type BoardDashboardAction = { kind: 'move' | 'delete'; id: string } | { kind: 'create' | 'filter' | 'close' };
 
   const openTasksDashboard = async (filter: string, ctx: ExtensionCommandContext): Promise<void> => {
     let preferredId: string | undefined;
+    let query = '';
     while (true) {
       const tasks = readTasks(ctx.cwd);
       const visibleTasks = (): Array<{ task: Task; group: string }> => groupTasks(tasks)
         .filter((group) => !filter || group.label.toLowerCase() === filter)
-        .flatMap((group) => group.items.map((task) => ({ task, group: group.label })));
+        .flatMap((group) => group.items.map((task) => ({ task, group: group.label })))
+        .filter(({ task, group }) => !query || `${task.text} ${task.id} ${task.due ?? ''} ${task.tags?.join(' ') ?? ''} ${group}`.toLowerCase().includes(query));
       const rows = (): InteractiveRow[] => visibleTasks().map(({ task, group }) => ({
-        id: task.id, label: `${group} · ${task.text}`, marker: task.done ? '✓' : '○', right: task.due,
-        detail: [`id ${task.id}`, task.tags?.length ? `tags: ${task.tags.join(', ')}` : '', task.recur ? `recurs: ${task.recur}` : ''].filter(Boolean).join(' · '),
+        id: task.id, label: task.text, marker: task.done ? '✓' : '○', right: task.due,
+        detail: [group, `id ${task.id}`, task.tags?.length ? `tags: ${task.tags.join(', ')}` : '', task.recur ? `recurs: ${task.recur}` : ''].filter(Boolean).join(' · '),
         tone: task.done ? 'success' : group === 'Overdue' ? 'error' : group === 'Today' ? 'warning' : 'text',
       }));
       const action = await ctx.ui.custom<TasksDashboardAction>((tui, theme, _keys, done) => {
         const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-          title: `# Tasks · ${visibleTasks().filter(({ task }) => !task.done).length} open`,
-          empty: filter ? `No ${filter} tasks.` : 'No agenda tasks yet — press n to add one.',
-          controls: ['↑↓ select · enter/space complete or reopen · n new', 'd delete · esc close'],
+          title: `# Tasks · ${visibleTasks().filter(({ task }) => !task.done).length} open${query ? ` · matching "${query}"` : ''}`,
+          empty: query ? 'No tasks match this filter.' : filter ? `No ${filter} tasks.` : 'No agenda tasks yet — press n to add one.',
+          controls: ['↑↓ select · enter/space toggle · / filter · n new', 'd delete · esc close'],
           onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
           onInput: (data, selected) => {
             if ((matchesKey(data, Key.enter) || matchesKey(data, Key.space)) && selected) return done({ kind: 'toggle', id: selected.id });
+            if (data === '/') { preferredId = selected?.id ?? preferredId; return done({ kind: 'filter' }); }
             if (data === 'n') return done({ kind: 'create' });
             if (data === 'd' && selected) return done({ kind: 'delete', id: selected.id });
           },
@@ -492,7 +495,10 @@ export default function tasksExtension(pi: ExtensionAPI): void {
       });
       if (!action || action.kind === 'close') return;
       if ('id' in action) preferredId = action.id;
-      if (action.kind === 'toggle') await agendaLock(ctx.cwd, () => {
+      if (action.kind === 'filter') {
+        const value = await ctx.ui.input('Filter tasks', 'Text, tag, date, ID, or group contains…');
+        if (value !== undefined) query = value.trim().toLowerCase().slice(0, 120);
+      } else if (action.kind === 'toggle') await agendaLock(ctx.cwd, () => {
         const all = readTasks(ctx.cwd); const task = all.find((item) => item.id === action.id); if (!task) return;
         task.done = !task.done; writeJson(tasksFile(ctx.cwd), all);
       });
@@ -512,17 +518,20 @@ export default function tasksExtension(pi: ExtensionAPI): void {
 
   const openBoardDashboard = async (boardName: string, ctx: ExtensionCommandContext): Promise<void> => {
     let preferredId: string | undefined;
+    let query = '';
     while (true) {
       const board = findBoard(readBoards(ctx.cwd), boardName);
-      const cards = (): Array<{ card: Card; column: Column }> => board?.columns.flatMap((column) => column.cards.map((card) => ({ card, column }))) ?? [];
-      const rows = (): InteractiveRow[] => cards().map(({ card, column }) => ({ id: card.id, label: `${column.name} · ${card.text}`, marker: '•', detail: card.tags?.length ? `tags: ${card.tags.join(', ')}` : `id ${card.id}` }));
+      const cards = (): Array<{ card: Card; column: Column }> => (board?.columns.flatMap((column) => column.cards.map((card) => ({ card, column }))) ?? [])
+        .filter(({ card, column }) => !query || `${card.text} ${card.id} ${card.tags?.join(' ') ?? ''} ${column.name}`.toLowerCase().includes(query));
+      const rows = (): InteractiveRow[] => cards().map(({ card, column }) => ({ id: card.id, label: card.text, marker: '•', right: column.name, detail: card.tags?.length ? `id ${card.id} · tags: ${card.tags.join(', ')}` : `id ${card.id}` }));
       const action = await ctx.ui.custom<BoardDashboardAction>((tui, theme, _keys, done) => {
         const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-          title: `# ${board?.name ?? boardName} · ${cards().length} cards`, empty: 'This board has no cards yet — press n to add one.',
-          controls: ['↑↓ select · enter move card · n new card', 'd delete card · esc close'],
+          title: `# ${board?.name ?? boardName} · ${cards().length} cards${query ? ` · matching "${query}"` : ''}`, empty: query ? 'No board cards match this filter.' : 'This board has no cards yet — press n to add one.',
+          controls: ['↑↓ select · enter move card · / filter · n new card', 'd delete card · esc close'],
           onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
           onInput: (data, selected) => {
             if (matchesKey(data, Key.enter) && selected) return done({ kind: 'move', id: selected.id });
+            if (data === '/') { preferredId = selected?.id ?? preferredId; return done({ kind: 'filter' }); }
             if (data === 'n') return done({ kind: 'create' });
             if (data === 'd' && selected) return done({ kind: 'delete', id: selected.id });
           },
@@ -532,7 +541,10 @@ export default function tasksExtension(pi: ExtensionAPI): void {
       });
       if (!action || action.kind === 'close') return;
       if ('id' in action) preferredId = action.id;
-      if (action.kind === 'move') {
+      if (action.kind === 'filter') {
+        const value = await ctx.ui.input('Filter board cards', 'Text, tag, ID, or column contains…');
+        if (value !== undefined) query = value.trim().toLowerCase().slice(0, 120);
+      } else if (action.kind === 'move') {
         const latest = findBoard(readBoards(ctx.cwd), boardName); if (!latest) continue;
         const source = latest.columns.find((column) => column.cards.some((card) => card.id === action.id)); if (!source) continue;
         const targetName = await ctx.ui.select('Move card to', latest.columns.map((column) => column.name));

@@ -82,7 +82,9 @@ try {
     expect(`/${name} opened interactive view`, capture);
     expect(`/${name} stays inline`, !capture!.overlay);
     const plain = capture!.lines.join(' ').replace(/\x1b\[[0-9;]*m/g, '');
-    expect(`/${name} uses a markdown-style heading`, plain.trimStart().startsWith('#'));
+    const plainLines = capture!.lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ''));
+    expect(`/${name} uses a markdown-style heading`, plainLines.some((line) => line.trimStart().startsWith('#')));
+    expect(`/${name} uses a spacious open frame`, plainLines[0] === '' && plainLines.at(-1) === '' && plainLines.filter((line) => /^─+$/.test(line)).length >= 2);
     expect(`/${name} shows navigation`, plain.includes('↑↓') || name === 'processes');
     expect(`/${name} shows close key`, plain.includes('esc close') || plain.includes('esc back'));
     if (name === 'todo') {
@@ -106,21 +108,28 @@ try {
   expect('todo reopen remains non-overlay', captures.slice(todoCaptureCount).every((capture) => !capture.overlay));
 
   const inlineCycle = async (name: string, args: string, keys: string[], inputs: Array<string | undefined>, actionKind: string, nestedEvent: string, customCount: number): Promise<void> => {
-    currentCommand = name; scriptedKeys = keys; scriptedInputs = inputs; lifecycleEvents.length = 0;
+    currentCommand = name; scriptedKeys = keys; scriptedInputs = [...inputs]; lifecycleEvents.length = 0;
+    const expectedQuery = actionKind === 'filter' ? inputs[0] : undefined;
     const before = captures.length;
     await commands.get(name).handler(args, ctx);
     const doneIndex = lifecycleEvents.indexOf(`done:${actionKind}`);
     const nestedIndex = lifecycleEvents.indexOf(nestedEvent, doneIndex + 1);
     expect(`${name} action closes before ${nestedEvent}`, doneIndex >= 0 && nestedIndex > doneIndex);
     expect(`${name} reopens inline`, captures.length === before + customCount && captures.slice(before).every((capture) => !capture.overlay));
+    if (expectedQuery) expect(`${name} preserves visible filter`, captures.at(-1)!.lines.join(' ').toLowerCase().includes(expectedQuery.toLowerCase()));
   };
+  await inlineCycle('counter', '', ['/', '\x1b'], ['demo'], 'filter', 'input', 2);
   await inlineCycle('counter', '', ['r', '\x1b'], [], 'reset', 'confirm', 2);
   await inlineCycle('todo', '', ['c', '\x1b'], [], 'clear', 'confirm', 2);
+  await inlineCycle('tasks', '', ['/', '\x1b'], ['demo'], 'filter', 'input', 2);
   await inlineCycle('tasks', '', ['n', '\x1b'], ['New task', ''], 'create', 'input', 2);
   await inlineCycle('tasks', '', ['d', '\x1b'], [], 'delete', 'confirm', 2);
+  await inlineCycle('board', 'Demo', ['/', '\x1b'], ['demo'], 'filter', 'input', 2);
   await inlineCycle('board', 'Demo', ['n', '\x1b'], ['New card'], 'create', 'input', 2);
   await inlineCycle('board', 'Demo', ['\r', '\x1b'], [], 'move', 'select', 2);
+  await inlineCycle('memory', 'project', ['/', '\x1b'], ['demo'], 'filter', 'input', 2);
   await inlineCycle('memory', 'project', ['d', '\x1b'], [], 'forget', 'confirm', 2);
+  await inlineCycle('processes', '', ['/', '\x1b'], ['focus'], 'filter', 'input', 2);
   await inlineCycle('processes', '', ['i', '\x1b'], ['hello'], 'input', 'input', 2);
   await inlineCycle('processes', '', ['\r', '\x1b', '\x1b'], [], 'logs', 'custom:start', 3);
   await inlineCycle('processes', '', ['s', '\x1b'], [], 'stop', 'confirm', 2);
@@ -128,6 +137,8 @@ try {
   await inlineCycle('wiki', '', ['/', '\x1b'], ['demo'], 'filter', 'input', 2);
   await inlineCycle('skills', 'project', ['\r', '\x1b', '\x1b'], [], 'open', 'custom:start', 3);
   await inlineCycle('wiki', '', ['\r', '\x1b', '\x1b'], [], 'open', 'custom:start', 3);
+
+  await inlineCycle('plan', 'demo', ['/', '\x1b'], ['first'], 'filter', 'input', 2);
 
   currentCommand = 'plan'; scriptedKeys = ['\r', '\x1b']; lifecycleEvents.length = 0;
   const planCaptureCount = captures.length;
@@ -141,7 +152,7 @@ try {
   expect('pet closes before opening its menu', petDone >= 0 && lifecycleEvents.indexOf('select', petDone + 1) > petDone);
   expect('pet reopens inline', captures.length === petCaptureCount + 2 && captures.slice(petCaptureCount).every((capture) => !capture.overlay));
   const petView = captures[petCaptureCount]!.lines.join('\n').replace(/\x1b\[[0-9;]*m/g, '');
-  expect('pet uses an open markdown-style layout', petView.trimStart().startsWith('#') && !/[╭╮╰╯│]/.test(petView));
+  expect('pet uses an open markdown-style layout', petView.split('\n').some((line) => line.trimStart().startsWith('#')) && !/[╭╮╰╯│]/.test(petView));
 
   console.log('counter, todo, agenda, plan, process, memory, skill, and wiki inline command regressions passed');
 } finally {

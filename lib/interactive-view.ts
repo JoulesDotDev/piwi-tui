@@ -23,6 +23,16 @@ export interface InteractiveListOptions {
   requestRender?: () => void;
 }
 
+export function renderViewHeader(theme: InteractiveTheme, title: string, width: number): string[] {
+  const w = Math.max(1, width);
+  return ['', theme.fg('borderMuted', '─'.repeat(w)), '', truncateToWidth(theme.fg('accent', theme.bold(title)), w), ''];
+}
+
+export function renderViewFooter(theme: InteractiveTheme, controls: string[], width: number): string[] {
+  const w = Math.max(1, width);
+  return ['', ...renderControlHints(theme, controls, w), '', theme.fg('borderMuted', '─'.repeat(w)), ''];
+}
+
 /** Shared Piwi keyboard-list surface. Controls are always visible and wrap rather
  * than truncate, so the user never has to remember hidden keys. */
 export class PiwiInteractiveList implements Component {
@@ -48,13 +58,11 @@ export class PiwiInteractiveList implements Component {
   }
   render(width: number): string[] {
     const w = Math.max(1, width);
-    const lines: string[] = [
-      truncateToWidth(this.theme.fg('accent', this.theme.bold(this.options.title)), w),
-      this.theme.fg('borderMuted', '─'.repeat(w)),
-    ];
-    if (!this.rows.length) lines.push(...wrapTextWithAnsi(`${this.theme.fg('customMessageLabel', '·')} ${this.theme.fg('muted', this.options.empty)}`, w));
     const maxRows = Math.max(3, this.options.maxRows ?? 12);
     const start = Math.max(0, Math.min(this.selected - Math.floor(maxRows / 2), Math.max(0, this.rows.length - maxRows)));
+    const range = this.rows.length > maxRows ? ` · ${start + 1}-${Math.min(this.rows.length, start + maxRows)}/${this.rows.length}` : '';
+    const lines: string[] = [...renderViewHeader(this.theme, `${this.options.title}${range}`, w)];
+    if (!this.rows.length) lines.push(...wrapTextWithAnsi(`${this.theme.fg('customMessageLabel', '·')} ${this.theme.fg('muted', this.options.empty)}`, w));
     for (let index = start; index < Math.min(this.rows.length, start + maxRows); index += 1) {
       const row = this.rows[index]!;
       const prefix = index === this.selected ? '› ' : '  ';
@@ -79,11 +87,10 @@ export class PiwiInteractiveList implements Component {
       );
       lines.push(colored);
       if (selected && row.detail) {
-        for (const detail of wrapTextWithAnsi(`${this.theme.fg('borderAccent', '  ↳')} ${this.theme.fg('dim', row.detail)}`, w)) lines.push(detail);
+        for (const detail of wrapTextWithAnsi(`${this.theme.fg('borderAccent', '  ↳')} ${this.theme.fg('muted', row.detail)}`, w)) lines.push(detail);
       }
     }
-    lines.push('');
-    lines.push(...renderControlHints(this.theme, this.options.controls, w));
+    lines.push(...renderViewFooter(this.theme, this.options.controls, w));
     return lines;
   }
   invalidate(): void {}
@@ -123,7 +130,7 @@ export class PiwiTextViewer implements Component {
     this.offset = Math.min(this.offset, Math.max(0, this.totalRows - this.maxRows));
     const body = visual.slice(this.offset, this.offset + this.maxRows);
     const position = this.totalRows > this.maxRows ? ` · ${this.offset + 1}-${Math.min(this.totalRows, this.offset + this.maxRows)}/${this.totalRows}` : '';
-    return [truncateToWidth(this.theme.fg('accent', this.theme.bold(`${this.title}${position}`)), w), '', ...body, '', ...renderControlHints(this.theme, ['↑↓ scroll · pgup/pgdn · home/end · esc back'], w)];
+    return [...renderViewHeader(this.theme, `${this.title}${position}`, w), ...body, ...renderViewFooter(this.theme, ['↑↓ scroll · pgup/pgdn · home/end · esc back'], w)];
   }
   invalidate(): void {}
 }

@@ -43,6 +43,8 @@ for (const [themeIndex, theme] of themes.entries()) {
   for (const width of [10, 20, 38, 80]) {
     const lines = list.render(width);
     expect(`theme ${themeIndex} width ${width}`, lines.every((line) => visibleWidth(line) <= width));
+    const plainLines = lines.map(strip);
+    expect(`theme ${themeIndex} spacious frame ${width}`, plainLines[0] === '' && plainLines.at(-1) === '' && plainLines.filter((line) => /^─+$/.test(line)).length >= 2);
     const controls = strip(lines.join(' '));
     for (const label of ['select', 'primary', 'new', 'pin', 'reset', 'delete', 'close']) expect(`controls remain visible at ${width}: ${label}`, controls.includes(label));
   }
@@ -59,6 +61,8 @@ for (const [themeIndex, theme] of themes.entries()) {
     const lines = viewer.render(width);
     expect(`viewer width ${width}`, lines.every((line) => visibleWidth(line) <= width));
     expect(`viewer controls ${width}`, strip(lines.join(' ')).includes('scroll') && strip(lines.join(' ')).includes('esc back'));
+    const plainLines = lines.map(strip);
+    expect(`viewer spacious frame ${width}`, plainLines[0] === '' && plainLines.at(-1) === '' && plainLines.filter((line) => /^─+$/.test(line)).length >= 2);
   }
   viewer.handleInput('\x1b[6~');
   expect('viewer page down', strip(viewer.render(40).join(' ')).includes('9-16/40'));
@@ -79,6 +83,10 @@ for (const file of interactive) {
   expect(`${file} names close control`, /esc (?:close|back)/.test(source));
   expect(`${file} has an inline custom view`, source.includes('ctx.ui.custom'));
   expect(`${file} custom views are not overlays`, !source.includes('{ overlay: true }'));
+}
+for (const file of ['counters.ts', 'tasks.ts', 'plan.ts', 'processes.ts', 'memory.ts']) {
+  const source = readFileSync(join(root, 'extensions', file), 'utf8');
+  expect(`${file} exposes text filtering`, source.includes('/ filter'));
 }
 for (const file of ['pet.ts']) {
   const source = readFileSync(join(root, 'extensions', file), 'utf8');

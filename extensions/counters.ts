@@ -5,7 +5,7 @@
  */
 import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from '@earendil-works/pi-tui';
-import { renderControlHints } from '../lib/interactive-view.ts';
+import { renderViewFooter, renderViewHeader } from '../lib/interactive-view.ts';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -229,13 +229,14 @@ interface DashboardTheme {
   bold(text: string): string;
 }
 type CounterDashboardExit =
-  | { kind: 'create'; selectedId?: string }
+  | { kind: 'create' | 'filter'; selectedId?: string }
   | { kind: 'reset'; id: string }
   | { kind: 'remove'; id: string }
   | { kind: 'close' };
 interface DashboardActions {
   adjust(id: string, amount: number): Promise<CounterState>;
   create(selectedId?: string): void;
+  filter(selectedId?: string): void;
   reset(id: string): void;
   remove(id: string): void;
   pin(id: string): Promise<CounterState | null>;
@@ -247,7 +248,7 @@ interface DashboardActions {
 export class CounterDashboard implements Component {
   private selected = 0;
   private busy = false;
-  constructor(private state: CounterState, private readonly theme: DashboardTheme, private readonly actions: DashboardActions, preferredId?: string) {
+  constructor(private state: CounterState, private readonly theme: DashboardTheme, private readonly actions: DashboardActions, preferredId?: string, private readonly query = '') {
     const preferred = preferredId ? state.counters.findIndex((counter) => counter.id === preferredId) : -1;
     if (preferred >= 0) this.selected = preferred;
   }
@@ -255,10 +256,11 @@ export class CounterDashboard implements Component {
   private update(next: CounterState | null): void {
     if (next) {
       const id = this.selectedItem()?.id;
-      this.state = next;
-      this.selected = Math.max(0, id ? next.counters.findIndex((counter) => counter.id === id) : this.selected);
+      const counters = next.counters.filter((counter) => !this.query || counter.name.toLowerCase().includes(this.query));
+      this.state = { ...next, counters };
+      this.selected = Math.max(0, id ? counters.findIndex((counter) => counter.id === id) : this.selected);
       if (this.selected < 0) this.selected = 0;
-      if (this.selected >= next.counters.length) this.selected = Math.max(0, next.counters.length - 1);
+      if (this.selected >= counters.length) this.selected = Math.max(0, counters.length - 1);
     }
     this.busy = false;
     this.actions.render();
@@ -282,16 +284,17 @@ export class CounterDashboard implements Component {
       const item = this.selectedItem(); if (item) return this.run(() => this.actions.adjust(item.id, -1));
     } else if (matchesKey(data, Key.right) || data === '+' || matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
       const item = this.selectedItem(); if (item) return this.run(() => this.actions.adjust(item.id, 1));
-    } else if (data === 'n') return this.actions.create(this.selectedItem()?.id);
+    } else if (data === '/') return this.actions.filter(this.selectedItem()?.id);
+    else if (data === 'n') return this.actions.create(this.selectedItem()?.id);
     else if (data === 'r') { const item = this.selectedItem(); if (item) return this.actions.reset(item.id); }
     else if (data === 'd') { const item = this.selectedItem(); if (item) return this.actions.remove(item.id); }
     else if (data === 'p') { const item = this.selectedItem(); if (item) return this.run(() => this.actions.pin(item.id)); }
     this.actions.render();
   }
   render(width: number): string[] {
-    const w = Math.max(20, width);
-    const lines = [this.theme.fg('accent', this.theme.bold(`# Counters · ${this.state.counters.length}`)), this.theme.fg('borderMuted', '─'.repeat(w))];
-    if (!this.state.counters.length) lines.push(this.theme.fg('muted', '  No counters yet — press n to make one.'));
+    const w = Math.max(1, width);
+    const lines = [...renderViewHeader(this.theme, `# Counters · ${this.state.counters.length}${this.query ? ` matching "${this.query}"` : ''}`, width)];
+    if (!this.state.counters.length) lines.push(this.theme.fg('muted', this.query ? '  No counters match this filter.' : '  No counters yet — press n to make one.'));
     const maxRows = 12;
     const start = Math.max(0, Math.min(this.selected - Math.floor(maxRows / 2), Math.max(0, this.state.counters.length - maxRows)));
     for (let index = start; index < Math.min(this.state.counters.length, start + maxRows); index += 1) {
@@ -318,15 +321,11 @@ export class CounterDashboard implements Component {
       );
       lines.push(row);
     }
-    lines.push('');
     const controls = [
-      this.busy ? 'Saving…' : '↑↓ select · ←/→ −/+ · enter +1 · n new · p pin',
+      this.busy ? 'Saving…' : '↑↓ select · ←/→ −/+ · enter +1 · / filter · n new · p pin',
       'r reset · d delete · esc close',
     ];
-    return [
-      ...lines.map((line) => truncateToWidth(line, width)),
-      ...renderControlHints(this.theme, controls, width),
-    ];
+    return [...lines.map((line) => truncateToWidth(line, width)), ...renderViewFooter(this.theme, controls, width)];
   }
   invalidate(): void {}
 }
@@ -386,23 +385,30 @@ export default function countersExtension(pi: ExtensionAPI): void {
   const openDashboard = async (ctx: ExtensionCommandContext): Promise<void> => {
     if (ctx.mode !== 'tui') return void ctx.ui.notify('/counter dashboard is available in interactive TUI mode.', 'warning');
     let preferredId: string | undefined;
+    let query = '';
     while (true) {
+      const fullState = readCounterState();
+      const visibleState = { ...fullState, counters: fullState.counters.filter((counter) => !query || counter.name.toLowerCase().includes(query)) };
       const action = await ctx.ui.custom<CounterDashboardExit>((tui, theme, _keys, done) => {
-        const dashboard = new CounterDashboard(readCounterState(), theme as DashboardTheme, {
+        const dashboard = new CounterDashboard(visibleState, theme as DashboardTheme, {
           adjust: async (id, amount) => (await update({ kind: 'add', id, amount }, ctx)).state,
           create: (selectedId) => done({ kind: 'create', selectedId }),
+          filter: (selectedId) => done({ kind: 'filter', selectedId }),
           reset: (id) => done({ kind: 'reset', id }),
           remove: (id) => done({ kind: 'remove', id }),
           pin: async (id) => (await update({ kind: 'pin', id }, ctx)).state,
           close: () => done({ kind: 'close' }),
           render: () => tui.requestRender(),
           error: (message) => ctx.ui.notify(message, 'warning'),
-        }, preferredId);
+        }, preferredId, query);
         return dashboard;
       });
       if (!action || action.kind === 'close') return;
-      preferredId = action.kind === 'create' ? action.selectedId : action.id;
-      if (action.kind === 'create') {
+      preferredId = action.kind === 'create' || action.kind === 'filter' ? action.selectedId : action.id;
+      if (action.kind === 'filter') {
+        const value = await ctx.ui.input('Filter counters', 'Name contains…');
+        if (value !== undefined) query = cleanCounterName(value).toLowerCase();
+      } else if (action.kind === 'create') {
         const value = await ctx.ui.input('New counter', 'What are you counting?');
         if (value === undefined) continue;
         const name = cleanCounterName(value);
