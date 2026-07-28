@@ -537,33 +537,42 @@ export default function wikiExtension(pi: ExtensionAPI): void {
     await ctx.ui.custom<void>((tui, theme, _keys, done) => {
       const viewer = new PiwiTextViewer(`⌂ ${page.replace(/\.md$/, '')}`, text, theme as InteractiveTheme, () => done(undefined));
       return { render: (width) => viewer.render(width), handleInput: (data) => { viewer.handleInput(data); tui.requestRender(); }, invalidate: () => viewer.invalidate() };
-    }, { overlay: true });
+    });
   };
   const openWikiLibrary = async (ctx: ExtensionCommandContext): Promise<void> => {
-    const pages = pageFiles(ctx.cwd).sort();
-    if (ctx.mode !== 'tui') return void pi.appendEntry('wiki-view', { pages });
-    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
-      let query = '';
+    const readPages = () => pageFiles(ctx.cwd).sort();
+    if (ctx.mode !== 'tui') return void pi.appendEntry('wiki-view', { pages: readPages() });
+    let query = '';
+    let selectedId: string | undefined;
+    while (true) {
+      const pages = readPages();
       const shown = (): string[] => pages.filter((page) => !query || page.toLowerCase().includes(query));
       const rows = (): InteractiveRow[] => shown().map((page) => {
         let heading = ''; try { heading = cleanLabel(readFileSync(join(wikiDir(ctx.cwd), page), 'utf8').split('\n').find((line) => line.startsWith('# '))?.slice(2) ?? ''); } catch { /* unreadable appears without detail */ }
         return { id: page, label: page.replace(/\.md$/, ''), marker: '•', detail: heading };
       });
-      let list: PiwiInteractiveList;
-      const refresh = (): void => { list.setTitle(`⌂ Wiki · ${shown().length}${query ? ` matching "${query}"` : ' pages'}`); list.setRows(rows()); tui.requestRender(); };
-      list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-        title: `⌂ Wiki · ${pages.length} pages`,
-        empty: query ? 'No wiki pages match this filter.' : 'No wiki pages yet.',
-        controls: ['↑↓ select · enter open · / filter', 'esc close'],
-        onClose: () => done(undefined),
-        requestRender: () => tui.requestRender(),
-        onInput: (data, selected) => {
-          if (matchesKey(data, Key.enter) && selected) return void openWikiPage(selected.id, ctx).then(refresh, (error) => ctx.ui.notify((error as Error).message, 'warning'));
-          if (data === '/') return void ctx.ui.input('Filter wiki pages', 'Name contains…').then((value) => { if (value !== undefined) { query = cleanLabel(value).toLowerCase(); refresh(); } });
-        },
+      const action = await ctx.ui.custom<{ kind: 'filter' | 'open'; page?: string } | { kind: 'close' }>((tui, theme, _keys, done) => {
+        const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
+          title: `⌂ Wiki · ${shown().length}${query ? ` matching "${query}"` : ' pages'}`,
+          empty: query ? 'No wiki pages match this filter.' : 'No wiki pages yet.', controls: ['↑↓ select · enter open · / filter', 'esc close'],
+          onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
+          onInput: (data, selected) => {
+            if (selected) selectedId = selected.id;
+            if (matchesKey(data, Key.enter) && selected) return done({ kind: 'open', page: selected.id });
+            if (data === '/') return done({ kind: 'filter' });
+          },
+        });
+        if (selectedId) list.setRows(rows(), selectedId);
+        return list;
       });
-      return list;
-    }, { overlay: true });
+      if (!action || action.kind === 'close') return;
+      if (action.kind === 'filter') {
+        const value = await ctx.ui.input('Filter wiki pages', 'Name contains…'); if (value !== undefined) query = cleanLabel(value).toLowerCase();
+      } else if (action.page) {
+        selectedId = action.page;
+        try { await openWikiPage(action.page, ctx); } catch (error) { ctx.ui.notify((error as Error).message, 'warning'); }
+      }
+    }
   };
 
   pi.registerEntryRenderer<{ pages: string[] }>('wiki-view', (entry, _options, theme) => entry.data ? new Text([theme.fg('accent', theme.bold(`⌂ Wiki · ${entry.data.pages.length} pages`)), ...entry.data.pages.map((page) => theme.fg('text', `• ${page.replace(/\.md$/, '')}`))].join('\n'), 0, 0) : undefined);

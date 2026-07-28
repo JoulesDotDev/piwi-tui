@@ -275,45 +275,39 @@ export default function planExtension(pi: ExtensionAPI): void {
   });
 
   const openPlanDashboard = async (file: string, ctx: ExtensionCommandContext): Promise<void> => {
-    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
-      let open = true;
-      let markdown = readPlan(ctx.cwd, file);
-      const parse = (): { title: string; rows: InteractiveRow[]; done: number; total: number } => {
-        const title = clean(markdown.split('\n').find((line) => line.startsWith('# '))?.slice(2) ?? file.replace(/\.md$/, ''), 100);
-        const steps = markdown.split('\n').flatMap((line, index): InteractiveRow[] => {
-          const match = /^- \[([ x])\] (.+)$/i.exec(line.trim());
-          return match ? [{ id: String(index), label: clean(match[2]), marker: match[1].toLowerCase() === 'x' ? '✓' : '○', tone: match[1].toLowerCase() === 'x' ? 'success' : 'text' }] : [];
-        });
-        return { title, rows: steps, done: steps.filter((row) => row.marker === '✓').length, total: steps.length };
-      };
-      let parsed = parse();
-      let list: PiwiInteractiveList;
-      const refresh = (preferred?: string): void => {
-        if (!open) return;
-        markdown = readPlan(ctx.cwd, file); parsed = parse();
-        list.setTitle(`◆ ${parsed.title} · ${parsed.done}/${parsed.total}`);
-        list.setRows(parsed.rows, preferred); tui.requestRender();
-      };
-      list = new PiwiInteractiveList(parsed.rows, theme as InteractiveTheme, {
-        title: `◆ ${parsed.title} · ${parsed.done}/${parsed.total}`,
-        empty: 'This plan has no checklist steps.',
-        controls: ['↑↓ select · enter/space complete or reopen', 'esc close'],
-        onClose: () => { open = false; done(undefined); },
-        requestRender: () => tui.requestRender(),
-        onInput: (data, selected) => {
-          if (!(matchesKey(data, Key.enter) || matchesKey(data, Key.space)) || !selected) return;
-          void planLock(ctx.cwd, () => {
-            const lines = readPlan(ctx.cwd, file).split('\n');
-            const index = Number(selected.id); const line = lines[index];
-            if (!line || !/^- \[[ x]\] /i.test(line.trim())) return;
-            const nextDone = !/^- \[x\] /i.test(line.trim());
-            lines[index] = line.replace(/- \[[ x]\] /i, `- [${nextDone ? 'x' : ' '}] `);
-            atomicWrite(join(plansDir(ctx.cwd), file), lines.join('\n'));
-          }).then(() => refresh(selected.id), (error) => ctx.ui.notify((error as Error).message, 'warning'));
-        },
+    let preferredId: string | undefined;
+    while (true) {
+      const markdown = readPlan(ctx.cwd, file);
+      const title = clean(markdown.split('\n').find((line) => line.startsWith('# '))?.slice(2) ?? file.replace(/\.md$/, ''), 100);
+      const rows = markdown.split('\n').flatMap((line, index): InteractiveRow[] => {
+        const match = /^- \[([ x])\] (.+)$/i.exec(line.trim());
+        return match ? [{ id: String(index), label: clean(match[2]), marker: match[1].toLowerCase() === 'x' ? '✓' : '○', tone: match[1].toLowerCase() === 'x' ? 'success' : 'text' }] : [];
       });
-      return list;
-    }, { overlay: true });
+      const action = await ctx.ui.custom<{ kind: 'toggle'; id: string } | { kind: 'close' }>((tui, theme, _keys, done) => {
+        const list = new PiwiInteractiveList(rows, theme as InteractiveTheme, {
+          title: `◆ ${title} · ${rows.filter((row) => row.marker === '✓').length}/${rows.length}`,
+          empty: 'This plan has no checklist steps.', controls: ['↑↓ select · enter/space complete or reopen', 'esc close'],
+          onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
+          onInput: (data, selected) => {
+            if ((matchesKey(data, Key.enter) || matchesKey(data, Key.space)) && selected) done({ kind: 'toggle', id: selected.id });
+          },
+        });
+        if (preferredId) list.setRows(rows, preferredId);
+        return list;
+      });
+      if (!action || action.kind === 'close') return;
+      preferredId = action.id;
+      try {
+        await planLock(ctx.cwd, () => {
+          const lines = readPlan(ctx.cwd, file).split('\n');
+          const index = Number(action.id); const line = lines[index];
+          if (!line || !/^- \[[ x]\] /i.test(line.trim())) return;
+          const nextDone = !/^- \[x\] /i.test(line.trim());
+          lines[index] = line.replace(/- \[[ x]\] /i, `- [${nextDone ? 'x' : ' '}] `);
+          atomicWrite(join(plansDir(ctx.cwd), file), lines.join('\n'));
+        });
+      } catch (error) { ctx.ui.notify((error as Error).message, 'warning'); }
+    }
   };
 
   pi.registerCommand('plan', {

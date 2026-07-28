@@ -234,57 +234,61 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   });
 
   const openMemoryDashboard = async (initialScope: 'all' | Scope, ctx: ExtensionCommandContext): Promise<void> => {
-    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
-      let scope = initialScope;
-      const collect = (): { facts: Array<{ id: string; scope: Scope; fact: string }>; errors: Array<{ scope: Scope; message: string }> } => {
-        const facts: Array<{ id: string; scope: Scope; fact: string }> = [];
-        const errors: Array<{ scope: Scope; message: string }> = [];
-        const scopes: Scope[] = scope === 'all' ? ['project', 'global'] : [scope];
-        for (const itemScope of scopes) {
-          if (itemScope === 'project' && !ctx.isProjectTrusted()) continue;
-          try { facts.push(...bullets(readScope(itemScope, ctx.cwd)).map((fact, index) => ({ id: `${itemScope}:${index}`, scope: itemScope, fact }))); }
-          catch (error) { errors.push({ scope: itemScope, message: clean((error as Error).message, 160) || 'unreadable' }); }
-        }
-        return { facts, errors };
-      };
-      const facts = () => collect().facts;
-      const rows = (): InteractiveRow[] => {
-        const result = collect();
-        return [
-          ...result.facts.map((item) => ({ id: item.id, label: item.fact, marker: item.scope === 'global' ? 'G' : 'P', detail: item.scope === 'global' ? 'Available in every project' : 'This project only' })),
-          ...result.errors.map((error) => ({ id: `error:${error.scope}`, label: `Could not read ${error.scope} memory`, marker: '!', detail: error.message, tone: 'error' })),
-        ];
-      };
-      let list: PiwiInteractiveList;
-      const refresh = (preferred?: string): void => { list.setTitle(`✦ Memory · ${scope} · ${facts().length} facts`); list.setRows(rows(), preferred); tui.requestRender(); };
-      list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-        title: `✦ Memory · ${scope} · ${facts().length} facts`,
-        empty: `No ${scope === 'all' ? 'accessible' : scope} memories.`,
-        controls: ['↑↓ select · p project · g global · a all', 'd forget selected · esc close'],
-        onClose: () => done(undefined),
-        requestRender: () => tui.requestRender(),
-        onInput: (data, selected) => {
-          if (data === 'p') { if (!ctx.isProjectTrusted()) return void ctx.ui.notify('Trust the project before viewing project memory.', 'warning'); scope = 'project'; return refresh(); }
-          if (data === 'g') { scope = 'global'; return refresh(); }
-          if (data === 'a') { scope = 'all'; return refresh(); }
-          if (data === 'd' && selected) return void (async () => {
-            const item = facts().find((fact) => fact.id === selected.id); if (!item) return;
-            if (!(await ctx.ui.confirm(`Forget this ${item.scope} memory?`, item.fact))) return;
-            await mutate(item.scope, ctx.cwd, (text, file) => {
-              const lines = text.split('\n');
-              let removed = false;
-              const kept = lines.filter((line) => {
-                if (!removed && line.trim().startsWith('- ') && clean(line.trim().slice(2)).toLowerCase() === item.fact.toLowerCase()) { removed = true; return false; }
-                return true;
-              });
-              if (removed) atomicWrite(file, `${kept.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`);
-            });
-            refresh();
-          })().catch((error) => ctx.ui.notify((error as Error).message, 'warning'));
-        },
+    let scope = initialScope;
+    let selectedId: string | undefined;
+    const collect = (): { facts: Array<{ id: string; scope: Scope; fact: string }>; errors: Array<{ scope: Scope; message: string }> } => {
+      const facts: Array<{ id: string; scope: Scope; fact: string }> = [];
+      const errors: Array<{ scope: Scope; message: string }> = [];
+      const scopes: Scope[] = scope === 'all' ? ['project', 'global'] : [scope];
+      for (const itemScope of scopes) {
+        if (itemScope === 'project' && !ctx.isProjectTrusted()) continue;
+        try { facts.push(...bullets(readScope(itemScope, ctx.cwd)).map((fact, index) => ({ id: `${itemScope}:${index}`, scope: itemScope, fact }))); }
+        catch (error) { errors.push({ scope: itemScope, message: clean((error as Error).message, 160) || 'unreadable' }); }
+      }
+      return { facts, errors };
+    };
+    while (true) {
+      const action = await ctx.ui.custom<{ kind: 'forget'; id: string } | { kind: 'close' }>((tui, theme, _keys, done) => {
+        const facts = () => collect().facts;
+        const rows = (): InteractiveRow[] => {
+          const result = collect();
+          return [
+            ...result.facts.map((item) => ({ id: item.id, label: item.fact, marker: item.scope === 'global' ? 'G' : 'P', detail: item.scope === 'global' ? 'Available in every project' : 'This project only' })),
+            ...result.errors.map((error) => ({ id: `error:${error.scope}`, label: `Could not read ${error.scope} memory`, marker: '!', detail: error.message, tone: 'error' })),
+          ];
+        };
+        let list: PiwiInteractiveList;
+        const refresh = (preferred?: string): void => { list.setTitle(`✦ Memory · ${scope} · ${facts().length} facts`); list.setRows(rows(), preferred); tui.requestRender(); };
+        list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
+          title: `✦ Memory · ${scope} · ${facts().length} facts`, empty: `No ${scope === 'all' ? 'accessible' : scope} memories.`,
+          controls: ['↑↓ select · p project · g global · a all', 'd forget selected · esc close'],
+          onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
+          onInput: (data, selected) => {
+            if (selected) selectedId = selected.id;
+            if (data === 'p') { if (!ctx.isProjectTrusted()) return void ctx.ui.notify('Trust the project before viewing project memory.', 'warning'); scope = 'project'; return refresh(); }
+            if (data === 'g') { scope = 'global'; return refresh(); }
+            if (data === 'a') { scope = 'all'; return refresh(); }
+            if (data === 'd' && selected) return done({ kind: 'forget', id: selected.id });
+          },
+        });
+        if (selectedId) list.setRows(rows(), selectedId);
+        return list;
       });
-      return list;
-    }, { overlay: true });
+      if (!action || action.kind === 'close') return;
+      selectedId = action.id;
+      const item = collect().facts.find((fact) => fact.id === action.id); if (!item) continue;
+      if (!(await ctx.ui.confirm(`Forget this ${item.scope} memory?`, item.fact))) continue;
+      try {
+        await mutate(item.scope, ctx.cwd, (text, file) => {
+          let removed = false;
+          const kept = text.split('\n').filter((line) => {
+            if (!removed && line.trim().startsWith('- ') && clean(line.trim().slice(2)).toLowerCase() === item.fact.toLowerCase()) { removed = true; return false; }
+            return true;
+          });
+          if (removed) atomicWrite(file, `${kept.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`);
+        });
+      } catch (error) { ctx.ui.notify((error as Error).message, 'warning'); }
+    }
   };
 
   pi.registerCommand('memory', {

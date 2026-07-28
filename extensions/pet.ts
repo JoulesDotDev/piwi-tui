@@ -1274,7 +1274,7 @@ export default function petExtension(pi: ExtensionAPI): void {
           invalidate: () => dashboard.invalidate(),
           handleInput: (data) => { dashboard.handleInput(data); tui.requestRender(); },
         };
-      }, { overlay: true });
+      });
       if (!action || action === 'close') return;
       if (action === 'care') await careMenu(ctx);
       else if (action === 'shop') await shopMenu(ctx);

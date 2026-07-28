@@ -460,128 +460,110 @@ export default function tasksExtension(pi: ExtensionAPI): void {
     }),
   );
 
+  type TasksDashboardAction = { kind: 'toggle' | 'delete'; id: string } | { kind: 'create' | 'close' };
+  type BoardDashboardAction = { kind: 'move' | 'delete'; id: string } | { kind: 'create' | 'close' };
+
   const openTasksDashboard = async (filter: string, ctx: ExtensionCommandContext): Promise<void> => {
-    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
-      let tasks = readTasks(ctx.cwd);
-      let busy = false;
+    let preferredId: string | undefined;
+    while (true) {
+      const tasks = readTasks(ctx.cwd);
       const visibleTasks = (): Array<{ task: Task; group: string }> => groupTasks(tasks)
         .filter((group) => !filter || group.label.toLowerCase() === filter)
         .flatMap((group) => group.items.map((task) => ({ task, group: group.label })));
       const rows = (): InteractiveRow[] => visibleTasks().map(({ task, group }) => ({
-        id: task.id,
-        label: `${group} · ${task.text}`,
-        marker: task.done ? '✓' : '○',
-        right: task.due,
+        id: task.id, label: `${group} · ${task.text}`, marker: task.done ? '✓' : '○', right: task.due,
         detail: [`id ${task.id}`, task.tags?.length ? `tags: ${task.tags.join(', ')}` : '', task.recur ? `recurs: ${task.recur}` : ''].filter(Boolean).join(' · '),
         tone: task.done ? 'success' : group === 'Overdue' ? 'error' : group === 'Today' ? 'warning' : 'text',
       }));
-      let list: PiwiInteractiveList;
-      const refresh = (preferred?: string): void => {
-        tasks = readTasks(ctx.cwd);
-        const shown = visibleTasks();
-        list.setTitle(`◆ Tasks · ${shown.filter(({ task }) => !task.done).length} open`);
-        list.setRows(rows(), preferred);
-        tui.requestRender();
-      };
-      const run = (action: () => Promise<void>): void => {
-        if (busy) return;
-        busy = true;
-        void action().catch((error) => ctx.ui.notify((error as Error).message, 'warning')).finally(() => { busy = false; refresh(); });
-      };
-      list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-        title: `◆ Tasks · ${visibleTasks().filter(({ task }) => !task.done).length} open`,
-        empty: filter ? `No ${filter} tasks.` : 'No agenda tasks yet — press n to add one.',
-        controls: ['↑↓ select · enter/space complete or reopen · n new', 'd delete · esc close'],
-        onClose: () => done(undefined),
-        requestRender: () => tui.requestRender(),
-        onInput: (data, selected) => {
-          if ((matchesKey(data, Key.enter) || matchesKey(data, Key.space)) && selected) return run(async () => agendaLock(ctx.cwd, () => {
-            const all = readTasks(ctx.cwd); const task = all.find((item) => item.id === selected.id); if (!task) return;
-            task.done = !task.done; writeJson(tasksFile(ctx.cwd), all);
-          }));
-          if (data === 'n') return run(async () => {
-            const entered = await ctx.ui.input('New agenda task', 'What should Piwi remember for later?');
-            if (entered === undefined || !entered.trim()) return;
-            const dueInput = await ctx.ui.input('Due date (optional)', 'YYYY-MM-DD or leave blank');
-            if (dueInput === undefined) return;
-            const due = dueInput.trim() || undefined;
-            if (due && !validDate(due)) throw new Error('Due date must be a real YYYY-MM-DD date.');
-            await agendaLock(ctx.cwd, () => {
-              const all = readTasks(ctx.cwd);
-              all.push({ id: shortId(), text: entered.trim().slice(0, 2000), due, done: false, created: today() });
-              writeJson(tasksFile(ctx.cwd), all);
-            });
-          });
-          if (data === 'd' && selected) return run(async () => {
-            const task = readTasks(ctx.cwd).find((item) => item.id === selected.id); if (!task) return;
-            if (!(await ctx.ui.confirm('Delete this agenda task?', task.text))) return;
-            await agendaLock(ctx.cwd, () => writeJson(tasksFile(ctx.cwd), readTasks(ctx.cwd).filter((item) => item.id !== selected.id)));
-          });
-        },
+      const action = await ctx.ui.custom<TasksDashboardAction>((tui, theme, _keys, done) => {
+        const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
+          title: `◆ Tasks · ${visibleTasks().filter(({ task }) => !task.done).length} open`,
+          empty: filter ? `No ${filter} tasks.` : 'No agenda tasks yet — press n to add one.',
+          controls: ['↑↓ select · enter/space complete or reopen · n new', 'd delete · esc close'],
+          onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
+          onInput: (data, selected) => {
+            if ((matchesKey(data, Key.enter) || matchesKey(data, Key.space)) && selected) return done({ kind: 'toggle', id: selected.id });
+            if (data === 'n') return done({ kind: 'create' });
+            if (data === 'd' && selected) return done({ kind: 'delete', id: selected.id });
+          },
+        });
+        if (preferredId) list.setRows(rows(), preferredId);
+        return list;
       });
-      return list;
-    }, { overlay: true });
+      if (!action || action.kind === 'close') return;
+      if ('id' in action) preferredId = action.id;
+      if (action.kind === 'toggle') await agendaLock(ctx.cwd, () => {
+        const all = readTasks(ctx.cwd); const task = all.find((item) => item.id === action.id); if (!task) return;
+        task.done = !task.done; writeJson(tasksFile(ctx.cwd), all);
+      });
+      else if (action.kind === 'create') {
+        const entered = await ctx.ui.input('New agenda task', 'What should Piwi remember for later?');
+        if (entered === undefined || !entered.trim()) continue;
+        const dueInput = await ctx.ui.input('Due date (optional)', 'YYYY-MM-DD or leave blank'); if (dueInput === undefined) continue;
+        const due = dueInput.trim() || undefined; if (due && !validDate(due)) { ctx.ui.notify('Due date must be a real YYYY-MM-DD date.', 'warning'); continue; }
+        const id = shortId(); preferredId = id;
+        await agendaLock(ctx.cwd, () => { const all = readTasks(ctx.cwd); all.push({ id, text: entered.trim().slice(0, 2000), due, done: false, created: today() }); writeJson(tasksFile(ctx.cwd), all); });
+      } else {
+        const task = readTasks(ctx.cwd).find((item) => item.id === action.id);
+        if (task && await ctx.ui.confirm('Delete this agenda task?', task.text)) await agendaLock(ctx.cwd, () => writeJson(tasksFile(ctx.cwd), readTasks(ctx.cwd).filter((item) => item.id !== action.id)));
+      }
+    }
   };
 
   const openBoardDashboard = async (boardName: string, ctx: ExtensionCommandContext): Promise<void> => {
-    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
-      let boards = readBoards(ctx.cwd);
-      let board = findBoard(boards, boardName);
-      let busy = false;
+    let preferredId: string | undefined;
+    while (true) {
+      const board = findBoard(readBoards(ctx.cwd), boardName);
       const cards = (): Array<{ card: Card; column: Column }> => board?.columns.flatMap((column) => column.cards.map((card) => ({ card, column }))) ?? [];
       const rows = (): InteractiveRow[] => cards().map(({ card, column }) => ({ id: card.id, label: `${column.name} · ${card.text}`, marker: '•', detail: card.tags?.length ? `tags: ${card.tags.join(', ')}` : `id ${card.id}` }));
-      let list: PiwiInteractiveList;
-      const refresh = (preferred?: string): void => {
-        boards = readBoards(ctx.cwd); board = findBoard(boards, boardName);
-        list.setTitle(`◆ ${board?.name ?? boardName} · ${cards().length} cards`);
-        list.setRows(rows(), preferred); tui.requestRender();
-      };
-      const run = (action: () => Promise<void>): void => {
-        if (busy) return; busy = true;
-        void action().catch((error) => ctx.ui.notify((error as Error).message, 'warning')).finally(() => { busy = false; refresh(); });
-      };
-      list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-        title: `◆ ${board?.name ?? boardName} · ${cards().length} cards`,
-        empty: 'This board has no cards yet — press n to add one.',
-        controls: ['↑↓ select · enter move card · n new card', 'd delete card · esc close'],
-        onClose: () => done(undefined),
-        requestRender: () => tui.requestRender(),
-        onInput: (data, selected) => {
-          if (matchesKey(data, Key.enter) && selected) return run(async () => {
-            const latest = findBoard(readBoards(ctx.cwd), boardName); if (!latest) return;
-            const source = latest.columns.find((column) => column.cards.some((card) => card.id === selected.id));
-            if (!source) return;
-            const targetName = await ctx.ui.select('Move card to', latest.columns.map((column) => column.name));
-            if (!targetName || targetName.toLowerCase() === source.name.toLowerCase()) return;
-            await agendaLock(ctx.cwd, () => {
-              const all = readBoards(ctx.cwd); const targetBoard = findBoard(all, boardName); if (!targetBoard) return;
-              const from = targetBoard.columns.find((column) => column.cards.some((card) => card.id === selected.id));
-              const to = targetBoard.columns.find((column) => column.name.toLowerCase() === targetName.toLowerCase()); if (!from || !to) return;
-              const index = from.cards.findIndex((card) => card.id === selected.id); const [card] = from.cards.splice(index, 1); if (card) to.cards.push(card);
-              writeJson(boardsFile(ctx.cwd), all);
-            });
-          });
-          if (data === 'n') return run(async () => {
-            const latest = findBoard(readBoards(ctx.cwd), boardName); if (!latest) return;
-            const text = await ctx.ui.input('New board card', 'Card text'); if (text === undefined || !text.trim()) return;
-            const columnName = await ctx.ui.select('Add to column', latest.columns.map((column) => column.name)); if (!columnName) return;
-            await agendaLock(ctx.cwd, () => {
-              const all = readBoards(ctx.cwd); const target = findBoard(all, boardName); const column = target?.columns.find((item) => item.name.toLowerCase() === columnName.toLowerCase()); if (!column) return;
-              column.cards.push({ id: shortId(), text: text.trim().slice(0, 2000) }); writeJson(boardsFile(ctx.cwd), all);
-            });
-          });
-          if (data === 'd' && selected) return run(async () => {
-            const found = cards().find(({ card }) => card.id === selected.id); if (!found || !(await ctx.ui.confirm('Delete this board card?', found.card.text))) return;
-            await agendaLock(ctx.cwd, () => {
-              const all = readBoards(ctx.cwd); const target = findBoard(all, boardName); if (!target) return;
-              for (const column of target.columns) column.cards = column.cards.filter((card) => card.id !== selected.id);
-              writeJson(boardsFile(ctx.cwd), all);
-            });
-          });
-        },
+      const action = await ctx.ui.custom<BoardDashboardAction>((tui, theme, _keys, done) => {
+        const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
+          title: `◆ ${board?.name ?? boardName} · ${cards().length} cards`, empty: 'This board has no cards yet — press n to add one.',
+          controls: ['↑↓ select · enter move card · n new card', 'd delete card · esc close'],
+          onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
+          onInput: (data, selected) => {
+            if (matchesKey(data, Key.enter) && selected) return done({ kind: 'move', id: selected.id });
+            if (data === 'n') return done({ kind: 'create' });
+            if (data === 'd' && selected) return done({ kind: 'delete', id: selected.id });
+          },
+        });
+        if (preferredId) list.setRows(rows(), preferredId);
+        return list;
       });
-      return list;
-    }, { overlay: true });
+      if (!action || action.kind === 'close') return;
+      if ('id' in action) preferredId = action.id;
+      if (action.kind === 'move') {
+        const latest = findBoard(readBoards(ctx.cwd), boardName); if (!latest) continue;
+        const source = latest.columns.find((column) => column.cards.some((card) => card.id === action.id)); if (!source) continue;
+        const targetName = await ctx.ui.select('Move card to', latest.columns.map((column) => column.name));
+        if (!targetName || targetName.toLowerCase() === source.name.toLowerCase()) continue;
+        await agendaLock(ctx.cwd, () => {
+          const all = readBoards(ctx.cwd); const targetBoard = findBoard(all, boardName); if (!targetBoard) return;
+          const from = targetBoard.columns.find((column) => column.cards.some((card) => card.id === action.id));
+          const to = targetBoard.columns.find((column) => column.name.toLowerCase() === targetName.toLowerCase()); if (!from || !to) return;
+          const index = from.cards.findIndex((card) => card.id === action.id); const [card] = from.cards.splice(index, 1); if (card) to.cards.push(card);
+          writeJson(boardsFile(ctx.cwd), all);
+        });
+      } else if (action.kind === 'create') {
+        const latest = findBoard(readBoards(ctx.cwd), boardName); if (!latest) continue;
+        if (!latest.columns.length) { ctx.ui.notify('Add a board column before creating a card.', 'warning'); continue; }
+        const text = await ctx.ui.input('New board card', 'Card text'); if (text === undefined || !text.trim()) continue;
+        const columnName = await ctx.ui.select('Add to column', latest.columns.map((column) => column.name)); if (!columnName) continue;
+        const id = shortId(); preferredId = id;
+        await agendaLock(ctx.cwd, () => {
+          const all = readBoards(ctx.cwd); const target = findBoard(all, boardName); const column = target?.columns.find((item) => item.name.toLowerCase() === columnName.toLowerCase()); if (!column) return;
+          column.cards.push({ id, text: text.trim().slice(0, 2000) }); writeJson(boardsFile(ctx.cwd), all);
+        });
+      } else {
+        const latest = findBoard(readBoards(ctx.cwd), boardName);
+        const found = latest?.columns.flatMap((column) => column.cards).find((card) => card.id === action.id);
+        if (found && await ctx.ui.confirm('Delete this board card?', found.text)) await agendaLock(ctx.cwd, () => {
+          const all = readBoards(ctx.cwd); const target = findBoard(all, boardName); if (!target) return;
+          for (const column of target.columns) column.cards = column.cards.filter((card) => card.id !== action.id);
+          writeJson(boardsFile(ctx.cwd), all);
+        });
+      }
+    }
   };
 
   // ---------- themed views (/tasks, /board) — interactive in TUI, transcript fallback elsewhere ----------

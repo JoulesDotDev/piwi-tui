@@ -25,7 +25,7 @@ Pi keeps npm packages under its own agent directory and installs runtime depende
 Git remains an alternative:
 
 ```sh
-pi install git:github.com/JoulesDotDev/piwi-tui@v1.2.2
+pi install git:github.com/JoulesDotDev/piwi-tui@v1.2.3
 ```
 
 Then open `/settings` in pi and select `piwi-theme` (or `piwi-theme-light`). Manage installs with `pi list`, `pi remove npm:piwi-tui`, and **`pi config`** (enable/disable individual resources — see _Per-project control_).
@@ -206,7 +206,7 @@ It reads `mcpServers` config from `~/.config/mcp/mcp.json` (shared), `~/.pi/agen
 
 - **`/research` is a prompt template, not a bespoke tool** — it composes `web_search` and `sub_agent`, then offers to save useful synthesis through `wiki_write`. Cleaner than a second orchestrator.
 - **`sub_agent` shells out to `pi`** (headless children, inheriting this session's model). `pi` must be on `PATH`. Helpers receive only their explicit task—no parent transcript, context files, or skills—and use read-only file/search tools plus web + now. Web still needs configured search credentials. Each invocation allows at most eight queued tasks; one session-global semaphore limits all overlapping runs to three concurrent children. Helpers also have a five-minute per-helper cap, and live only as long as the parent session. Each task carries a one-line `doing` label that feeds the live roster and `/agents`; past ~50% of the context window, a transient per-request note steers exploration toward delegation. Launches are ASYNC by default — the tool returns immediately, and the findings arrive as a message that wakes the model to synthesise (`deliver: 'each'` streams each helper's findings the moment it finishes instead of one combined message; `wait: true` blocks instead; headless runs always wait). Esc doesn't reach detached helpers — `/agents stop` cancels them.
-- **Interactive views use one visible-control system** — `/counter`, `/todo`, `/tasks`, `/board`, `/plan`, `/processes`, `/memory`, `/skills`, and `/wiki` keep navigation and action keys on screen, wrap them on narrow terminals, highlight keys separately from descriptions, retain focus across prompts/subviews, use the same selection/confirmation colors, and preserve direct commands plus autocomplete. Doctor and locks intentionally remain focused read-only cards.
+- **Interactive views use one visible-control system** — `/counter`, `/todo`, `/tasks`, `/board`, `/plan`, `/processes`, `/memory`, `/skills`, and `/wiki` stay inline in the chat, keep navigation and action keys on screen, wrap them on narrow terminals, highlight keys separately from descriptions, close and reopen safely around prompts/subviews, use the same selection/confirmation colors, and preserve direct commands plus autocomplete. Doctor and locks intentionally remain focused read-only cards.
 - **`pomodoro`, `counters`, and `pet` use real terminal widgets** — compact pi-tui components rather than HTML mini-apps. Counters and the pet also provide larger keyboard-driven local views while keeping their pinned/live presence responsive and non-focusable.
 - **`autoname` fills a genuine gap** — pi has manual rename and programmatic naming, but nothing titles sessions automatically. This does, heuristically and for free.
 

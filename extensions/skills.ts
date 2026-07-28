@@ -188,40 +188,50 @@ export default function skillsExtension(pi: ExtensionAPI): void {
   );
 
   const openSkills = async (scope: 'all' | 'project' | 'global', ctx: ExtensionCommandContext): Promise<void> => {
-    const records = [
+    const readRecords = () => [
       ...(scope !== 'global' && ctx.isProjectTrusted() ? listScope('project', ctx.cwd) : []),
       ...(scope !== 'project' ? listScope('global', ctx.cwd) : []),
     ];
     if (ctx.mode !== 'tui') {
-      pi.appendEntry('skills-view', { records });
+      pi.appendEntry('skills-view', { records: readRecords() });
       return;
     }
-    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
-      let query = '';
+    let query = '';
+    let selectedId: string | undefined;
+    while (true) {
+      const records = readRecords();
       const shown = () => records.filter((skill) => !query || `${skill.name} ${skill.description} ${skill.slug}`.toLowerCase().includes(query));
       const rows = (): InteractiveRow[] => shown().map((skill) => ({ id: `${skill.scope}:${skill.slug}`, label: skill.name, marker: skill.scope === 'global' ? 'G' : 'P', detail: skill.description || skill.slug }));
-      let list: PiwiInteractiveList;
-      const refresh = (): void => { list.setTitle(`◇ Skills · ${shown().length}${query ? ` matching "${query}"` : ''}`); list.setRows(rows()); tui.requestRender(); };
-      list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-        title: `◇ Skills · ${records.length}`,
-        empty: query ? 'No skills match this filter.' : 'No accessible skills.',
-        controls: ['↑↓ select · enter open · / filter', 'esc close'],
-        onClose: () => done(undefined),
-        requestRender: () => tui.requestRender(),
-        onInput: (data, selected) => {
-          if (data === '/') return void ctx.ui.input('Filter skills', 'Name or description contains…').then((value) => { if (value !== undefined) { query = cleanLine(value, 100).toLowerCase(); refresh(); } });
-          if (!matchesKey(data, Key.enter) || !selected) return;
-          const skill = records.find((item) => `${item.scope}:${item.slug}` === selected.id); if (!skill) return;
-          const file = join(dirFor(skill.scope, ctx.cwd), skill.slug, 'SKILL.md');
-          let text = ''; try { text = readFileSync(file, 'utf8'); } catch (error) { return void ctx.ui.notify((error as Error).message, 'warning'); }
-          void ctx.ui.custom<void>((innerTui, innerTheme, _innerKeys, close) => {
-            const viewer = new PiwiTextViewer(`◇ ${skill.name}`, text, innerTheme as InteractiveTheme, () => close(undefined));
-            return { render: (width) => viewer.render(width), handleInput: (key) => { viewer.handleInput(key); innerTui.requestRender(); }, invalidate: () => viewer.invalidate() };
-          }, { overlay: true }).then(refresh);
-        },
+      const action = await ctx.ui.custom<{ kind: 'filter' | 'open'; id?: string } | { kind: 'close' }>((tui, theme, _keys, done) => {
+        const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
+          title: `◇ Skills · ${shown().length}${query ? ` matching "${query}"` : ''}`,
+          empty: query ? 'No skills match this filter.' : 'No accessible skills.', controls: ['↑↓ select · enter open · / filter', 'esc close'],
+          onClose: () => done({ kind: 'close' }), requestRender: () => tui.requestRender(),
+          onInput: (data, selected) => {
+            if (selected) selectedId = selected.id;
+            if (data === '/') return done({ kind: 'filter' });
+            if (matchesKey(data, Key.enter) && selected) return done({ kind: 'open', id: selected.id });
+          },
+        });
+        if (selectedId) list.setRows(rows(), selectedId);
+        return list;
       });
-      return list;
-    }, { overlay: true });
+      if (!action || action.kind === 'close') return;
+      if (action.kind === 'filter') {
+        const value = await ctx.ui.input('Filter skills', 'Name or description contains…');
+        if (value !== undefined) query = cleanLine(value, 100).toLowerCase();
+        continue;
+      }
+      if (!action.id) continue;
+      selectedId = action.id;
+      const skill = records.find((item) => `${item.scope}:${item.slug}` === action.id); if (!skill) continue;
+      const file = join(dirFor(skill.scope, ctx.cwd), skill.slug, 'SKILL.md');
+      let text = ''; try { text = readFileSync(file, 'utf8'); } catch (error) { ctx.ui.notify((error as Error).message, 'warning'); continue; }
+      await ctx.ui.custom<void>((innerTui, innerTheme, _innerKeys, close) => {
+        const viewer = new PiwiTextViewer(`◇ ${skill.name}`, text, innerTheme as InteractiveTheme, () => close(undefined));
+        return { render: (width) => viewer.render(width), handleInput: (key) => { viewer.handleInput(key); innerTui.requestRender(); }, invalidate: () => viewer.invalidate() };
+      });
+    }
   };
 
   pi.registerEntryRenderer<{ records: Array<{ name: string; description: string; scope: string }> }>('skills-view', (entry, _options, theme) => {

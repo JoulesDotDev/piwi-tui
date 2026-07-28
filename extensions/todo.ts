@@ -17,6 +17,12 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 interface TodoItem { text: string; done: boolean }
 interface TodoList { title: string; items: TodoItem[] }
 interface TodoView { title: string; items: TodoItem[]; empty?: boolean }
+type TodoDashboardAction =
+  | { kind: 'toggle'; index: number }
+  | { kind: 'reopen'; index: number }
+  | { kind: 'add' }
+  | { kind: 'clear' }
+  | { kind: 'close' };
 
 class TodoToolCard {
   constructor(private readonly title: string, private readonly lines: string[], private readonly theme: { fg(c: string, s: string): string; bg(c: string, s: string): string; bold(s: string): string }) {}
@@ -206,80 +212,57 @@ export default function todoExtension(pi: ExtensionAPI): void {
       return;
     }
     const file = safeFile(ctx.cwd);
-    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
-      let current = readTodo(file);
-      let busy = false;
-      const rows = (): InteractiveRow[] => (current?.items ?? []).map((item, index) => ({
-        id: String(index),
-        label: item.text,
-        marker: item.done ? '✓' : '○',
-        right: item.done ? 'done' : undefined,
-        tone: item.done ? 'success' : 'text',
-      }));
-      let list: PiwiInteractiveList;
-      const heading = (): string => {
+    let preferredIndex = 0;
+    while (true) {
+      const current = readTodo(file);
+      const action = await ctx.ui.custom<TodoDashboardAction>((tui, theme, _keys, done) => {
+        const rows = (): InteractiveRow[] => (current?.items ?? []).map((item, index) => ({
+          id: String(index), label: item.text, marker: item.done ? '✓' : '○',
+          right: item.done ? 'done' : undefined, tone: item.done ? 'success' : 'text',
+        }));
         const items = current?.items ?? [];
-        return `Todo · ${items.filter((item) => item.done).length}/${items.length}`;
-      };
-      const refresh = (preferred?: string): void => {
-        current = readTodo(file);
-        list.setTitle(heading());
-        list.setRows(rows(), preferred);
-        tui.requestRender();
-      };
-      const run = (action: () => Promise<void>): void => {
-        if (busy) return;
-        busy = true;
-        tui.requestRender();
-        void action().catch((error) => ctx.ui.notify((error as Error).message, 'warning')).finally(() => { busy = false; refresh(); });
-      };
-      list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-        title: heading(),
-        empty: 'No checklist yet — press n to create one.',
-        controls: ['↑↓ select · enter/space toggle · n add', 'r reopen · c clear · esc close'],
-        onClose: () => done(undefined),
-        requestRender: () => tui.requestRender(),
-        onInput: (data, selected) => {
-          if (busy) return;
-          if ((matchesKey(data, Key.enter) || matchesKey(data, Key.space)) && selected) {
-            return run(async () => locked(file, () => {
-              const todo = readTodo(file); if (!todo) return;
-              const index = Number(selected.id); if (!todo.items[index]) return;
-              todo.items[index].done = !todo.items[index].done;
-              atomicWrite(file, todo);
-            }));
-          }
-          if (data === 'r' && selected) {
-            return run(async () => locked(file, () => {
-              const todo = readTodo(file); if (!todo) return;
-              const index = Number(selected.id); if (!todo.items[index]) return;
-              todo.items[index].done = false;
-              atomicWrite(file, todo);
-            }));
-          }
-          if (data === 'n') return run(async () => {
-            let todo = readTodo(file);
-            const entered = await ctx.ui.input(todo ? 'Add a todo step' : 'First todo step', 'What needs doing?');
-            if (entered === undefined) return;
-            const text = clean(entered);
-            if (!text) return;
-            await locked(file, () => {
-              todo = readTodo(file) ?? { title: 'Project todo', items: [] };
-              if (todo.items.length >= 50) throw new Error('A quick checklist can have at most 50 steps.');
-              todo.items.push({ text, done: false });
-              atomicWrite(file, todo);
-            });
-          });
-          if (data === 'c') return run(async () => {
-            const todo = readTodo(file); if (!todo) return;
-            const count = todo.items.filter((item) => item.done).length;
-            if (!(await ctx.ui.confirm('Clear the project todo?', `${count}/${todo.items.length} complete\n\nThis removes .pi/TODO.md.`))) return;
-            await locked(file, () => rmSync(file, { force: true }));
-          });
-        },
+        const list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
+          title: `Todo · ${items.filter((item) => item.done).length}/${items.length}`,
+          empty: 'No checklist yet — press n to create one.',
+          controls: ['↑↓ select · enter/space toggle · n add', 'r reopen · c clear · esc close'],
+          onClose: () => done({ kind: 'close' }),
+          requestRender: () => tui.requestRender(),
+          onInput: (data, selected) => {
+            if ((matchesKey(data, Key.enter) || matchesKey(data, Key.space)) && selected) return done({ kind: 'toggle', index: Number(selected.id) });
+            if (data === 'r' && selected) return done({ kind: 'reopen', index: Number(selected.id) });
+            if (data === 'n') return done({ kind: 'add' });
+            if (data === 'c') return done({ kind: 'clear' });
+          },
+        });
+        if (items.length) list.setRows(rows(), String(Math.min(preferredIndex, items.length - 1)));
+        return list;
       });
-      return list;
-    }, { overlay: true });
+      if (!action || action.kind === 'close') return;
+      if (action.kind === 'toggle' || action.kind === 'reopen') {
+        preferredIndex = action.index;
+        await locked(file, () => {
+          const todo = readTodo(file); if (!todo?.items[action.index]) return;
+          todo.items[action.index].done = action.kind === 'toggle' ? !todo.items[action.index].done : false;
+          atomicWrite(file, todo);
+        });
+      } else if (action.kind === 'add') {
+        let todo = readTodo(file);
+        const entered = await ctx.ui.input(todo ? 'Add a todo step' : 'First todo step', 'What needs doing?');
+        if (entered === undefined) continue;
+        const text = clean(entered); if (!text) continue;
+        await locked(file, () => {
+          todo = readTodo(file) ?? { title: 'Project todo', items: [] };
+          if (todo.items.length >= 50) throw new Error('A quick checklist can have at most 50 steps.');
+          todo.items.push({ text, done: false });
+          preferredIndex = todo.items.length - 1;
+          atomicWrite(file, todo);
+        });
+      } else {
+        const todo = readTodo(file); if (!todo) continue;
+        const count = todo.items.filter((item) => item.done).length;
+        if (await ctx.ui.confirm('Clear the project todo?', `${count}/${todo.items.length} complete\n\nThis removes .pi/TODO.md.`)) await locked(file, () => rmSync(file, { force: true }));
+      }
+    }
   };
 
   pi.registerCommand('todo', {

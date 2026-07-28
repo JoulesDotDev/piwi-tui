@@ -69,48 +69,51 @@ export default function processesExtension(pi: ExtensionAPI): void {
       },
       handleInput(data: string) { if (matchesKey(data, Key.escape) || data === 'q') done(undefined); else if (data === 'r') tui.requestRender(); },
       invalidate() {},
-    }), { overlay: true });
+    }));
   };
+  type ProcessDashboardAction = { kind: 'logs' | 'input' | 'stop'; id: string } | { kind: 'close' };
   const openProcessDashboard = async (initialId: string | undefined, ctx: ExtensionCommandContext): Promise<void> => {
-    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
-      let open = true;
-      const rows = (): InteractiveRow[] => manager.list().map((process) => ({
-        id: process.id,
-        label: process.name,
-        marker: live(process) ? '●' : process.success ? '✓' : '×',
-        right: live(process) ? age(process.startTime) : process.status,
-        detail: `${clean(process.command, 300)} · ${process.id}`,
-        tone: live(process) ? 'success' : process.success ? 'muted' : 'error',
-      }));
-      let list: PiwiInteractiveList;
-      const refresh = (): void => { if (!open) return; list.setTitle(`● Processes · ${manager.list().filter(live).length} running`); list.setRows(rows(), list.selectedRow()?.id ?? initialId); tui.requestRender(); };
-      list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
-        title: `● Processes · ${manager.list().filter(live).length} running`,
-        empty: 'No session processes are running; the process tool starts one with Guard coverage.',
-        controls: ['↑↓ select · enter/l logs', 'i send input · s stop · esc close'],
-        onClose: () => { open = false; refreshDashboard = undefined; done(undefined); },
-        requestRender: () => tui.requestRender(),
-        onInput: (data, selected) => {
-          if ((matchesKey(data, Key.enter) || data === 'l') && selected) return void showLogs(ctx, selected.id).then(refresh);
-          if (data === 'i' && selected) return void (async () => {
-            const text = await ctx.ui.input('Send process input', 'Text followed by Enter'); if (text === undefined) return;
-            const result = manager.writeToStdin(selected.id, `${text}\n`); if (!result.ok) ctx.ui.notify(`Could not send input: ${result.reason}.`, 'warning');
-            else { const logs = manager.getLogFiles(selected.id); if (logs) appendInputLog(logs.combinedFile, text); }
-            refresh();
-          })();
-          if (data === 's' && selected) return void (async () => {
-            const process = manager.get(selected.id); if (!process || !live(process)) return;
-            if (!(await ctx.ui.confirm(`Stop ${process.name}?`, clean(process.command, 500)))) return;
-            const result = await manager.kill(selected.id, { timeoutMs: 5_000 }); if (!result.ok) ctx.ui.notify(`Could not stop ${selected.id}: ${result.reason}.`, 'warning');
-            refresh();
-          })();
-        },
+    let selectedId = initialId;
+    while (true) {
+      const action = await ctx.ui.custom<ProcessDashboardAction>((tui, theme, _keys, done) => {
+        let open = true;
+        const rows = (): InteractiveRow[] => manager.list().map((process) => ({
+          id: process.id, label: process.name, marker: live(process) ? '●' : process.success ? '✓' : '×',
+          right: live(process) ? age(process.startTime) : process.status, detail: `${clean(process.command, 300)} · ${process.id}`,
+          tone: live(process) ? 'success' : process.success ? 'muted' : 'error',
+        }));
+        let list: PiwiInteractiveList;
+        const refresh = (): void => { if (!open) return; list.setTitle(`● Processes · ${manager.list().filter(live).length} running`); list.setRows(rows(), list.selectedRow()?.id ?? selectedId); tui.requestRender(); };
+        const exit = (result: ProcessDashboardAction): void => { open = false; refreshDashboard = undefined; done(result); };
+        list = new PiwiInteractiveList(rows(), theme as InteractiveTheme, {
+          title: `● Processes · ${manager.list().filter(live).length} running`, empty: 'No session processes are running; the process tool starts one with Guard coverage.',
+          controls: ['↑↓ select · enter/l logs', 'i send input · s stop · esc close'],
+          onClose: () => exit({ kind: 'close' }), requestRender: () => tui.requestRender(),
+          onInput: (data, selected) => {
+            if ((matchesKey(data, Key.enter) || data === 'l') && selected) return exit({ kind: 'logs', id: selected.id });
+            if (data === 'i' && selected) return exit({ kind: 'input', id: selected.id });
+            if (data === 's' && selected) return exit({ kind: 'stop', id: selected.id });
+          },
+        });
+        if (selectedId) list.setRows(rows(), selectedId);
+        refreshDashboard = refresh;
+        return { render: (width) => list.render(width), handleInput: (data) => list.handleInput(data), invalidate: () => list.invalidate() };
       });
-      if (initialId) list.setRows(rows(), initialId);
-      refreshDashboard = refresh;
-      return { render: (width) => list.render(width), handleInput: (data) => list.handleInput(data), invalidate: () => list.invalidate() };
-    }, { overlay: true });
-    refreshDashboard = undefined;
+      refreshDashboard = undefined;
+      if (!action || action.kind === 'close') return;
+      selectedId = action.id;
+      if (action.kind === 'logs') await showLogs(ctx, action.id);
+      else if (action.kind === 'input') {
+        const text = await ctx.ui.input('Send process input', 'Text followed by Enter'); if (text === undefined) continue;
+        const result = manager.writeToStdin(action.id, `${text}\n`); if (!result.ok) ctx.ui.notify(`Could not send input: ${result.reason}.`, 'warning');
+        else { const logs = manager.getLogFiles(action.id); if (logs) appendInputLog(logs.combinedFile, text); }
+      } else {
+        const process = manager.get(action.id); if (!process || !live(process)) continue;
+        if (await ctx.ui.confirm(`Stop ${process.name}?`, clean(process.command, 500))) {
+          const result = await manager.kill(action.id, { timeoutMs: 5_000 }); if (!result.ok) ctx.ui.notify(`Could not stop ${action.id}: ${result.reason}.`, 'warning');
+        }
+      }
+    }
   };
 
   pi.registerCommand('processes', {

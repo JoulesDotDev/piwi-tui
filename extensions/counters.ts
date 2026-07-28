@@ -228,11 +228,16 @@ interface DashboardTheme {
   bg(color: string, text: string): string;
   bold(text: string): string;
 }
+type CounterDashboardExit =
+  | { kind: 'create'; selectedId?: string }
+  | { kind: 'reset'; id: string }
+  | { kind: 'remove'; id: string }
+  | { kind: 'close' };
 interface DashboardActions {
   adjust(id: string, amount: number): Promise<CounterState>;
-  create(): Promise<CounterState | null>;
-  reset(id: string): Promise<CounterState | null>;
-  remove(id: string): Promise<CounterState | null>;
+  create(selectedId?: string): void;
+  reset(id: string): void;
+  remove(id: string): void;
   pin(id: string): Promise<CounterState | null>;
   close(): void;
   render(): void;
@@ -242,7 +247,10 @@ interface DashboardActions {
 export class CounterDashboard implements Component {
   private selected = 0;
   private busy = false;
-  constructor(private state: CounterState, private readonly theme: DashboardTheme, private readonly actions: DashboardActions) {}
+  constructor(private state: CounterState, private readonly theme: DashboardTheme, private readonly actions: DashboardActions, preferredId?: string) {
+    const preferred = preferredId ? state.counters.findIndex((counter) => counter.id === preferredId) : -1;
+    if (preferred >= 0) this.selected = preferred;
+  }
   private selectedItem(): CounterItem | undefined { return this.state.counters[this.selected]; }
   private update(next: CounterState | null): void {
     if (next) {
@@ -274,9 +282,9 @@ export class CounterDashboard implements Component {
       const item = this.selectedItem(); if (item) return this.run(() => this.actions.adjust(item.id, -1));
     } else if (matchesKey(data, Key.right) || data === '+' || matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
       const item = this.selectedItem(); if (item) return this.run(() => this.actions.adjust(item.id, 1));
-    } else if (data === 'n') return this.run(() => this.actions.create());
-    else if (data === 'r') { const item = this.selectedItem(); if (item) return this.run(() => this.actions.reset(item.id)); }
-    else if (data === 'd') { const item = this.selectedItem(); if (item) return this.run(() => this.actions.remove(item.id)); }
+    } else if (data === 'n') return this.actions.create(this.selectedItem()?.id);
+    else if (data === 'r') { const item = this.selectedItem(); if (item) return this.actions.reset(item.id); }
+    else if (data === 'd') { const item = this.selectedItem(); if (item) return this.actions.remove(item.id); }
     else if (data === 'p') { const item = this.selectedItem(); if (item) return this.run(() => this.actions.pin(item.id)); }
     this.actions.render();
   }
@@ -377,33 +385,38 @@ export default function countersExtension(pi: ExtensionAPI): void {
 
   const openDashboard = async (ctx: ExtensionCommandContext): Promise<void> => {
     if (ctx.mode !== 'tui') return void ctx.ui.notify('/counter dashboard is available in interactive TUI mode.', 'warning');
-    await ctx.ui.custom<void>((tui, theme, _keys, done) => {
-      const dashboard = new CounterDashboard(readCounterState(), theme as DashboardTheme, {
-        adjust: async (id, amount) => (await update({ kind: 'add', id, amount }, ctx)).state,
-        create: async () => {
-          const value = await ctx.ui.input('New counter', 'What are you counting?');
-          if (value === undefined) return null;
-          const name = cleanCounterName(value);
-          if (!name) return null;
-          return (await update({ kind: 'create', name }, ctx)).state;
-        },
-        reset: async (id) => {
-          const item = readCounterState().counters.find((counter) => counter.id === id);
-          if (!item || !(await ctx.ui.confirm(`Reset ${item.name}?`, `Set ${item.name} from ${item.value.toLocaleString('en-US')} back to 0?`))) return null;
-          return (await update({ kind: 'reset', id }, ctx)).state;
-        },
-        remove: async (id) => {
-          const item = readCounterState().counters.find((counter) => counter.id === id);
-          if (!item || !(await ctx.ui.confirm(`Delete ${item.name}?`, 'This removes the counter permanently.'))) return null;
-          return (await update({ kind: 'delete', id }, ctx)).state;
-        },
-        pin: async (id) => (await update({ kind: 'pin', id }, ctx)).state,
-        close: () => done(undefined),
-        render: () => tui.requestRender(),
-        error: (message) => ctx.ui.notify(message, 'warning'),
+    let preferredId: string | undefined;
+    while (true) {
+      const action = await ctx.ui.custom<CounterDashboardExit>((tui, theme, _keys, done) => {
+        const dashboard = new CounterDashboard(readCounterState(), theme as DashboardTheme, {
+          adjust: async (id, amount) => (await update({ kind: 'add', id, amount }, ctx)).state,
+          create: (selectedId) => done({ kind: 'create', selectedId }),
+          reset: (id) => done({ kind: 'reset', id }),
+          remove: (id) => done({ kind: 'remove', id }),
+          pin: async (id) => (await update({ kind: 'pin', id }, ctx)).state,
+          close: () => done({ kind: 'close' }),
+          render: () => tui.requestRender(),
+          error: (message) => ctx.ui.notify(message, 'warning'),
+        }, preferredId);
+        return dashboard;
       });
-      return dashboard;
-    }, { overlay: true });
+      if (!action || action.kind === 'close') return;
+      preferredId = action.kind === 'create' ? action.selectedId : action.id;
+      if (action.kind === 'create') {
+        const value = await ctx.ui.input('New counter', 'What are you counting?');
+        if (value === undefined) continue;
+        const name = cleanCounterName(value);
+        if (!name) continue;
+        const changed = await update({ kind: 'create', name }, ctx);
+        preferredId = changed.counter?.id ?? preferredId;
+      } else if (action.kind === 'reset') {
+        const item = readCounterState().counters.find((counter) => counter.id === action.id);
+        if (item && await ctx.ui.confirm(`Reset ${item.name}?`, `Set ${item.name} from ${item.value.toLocaleString('en-US')} back to 0?`)) await update({ kind: 'reset', id: action.id }, ctx);
+      } else {
+        const item = readCounterState().counters.find((counter) => counter.id === action.id);
+        if (item && await ctx.ui.confirm(`Delete ${item.name}?`, 'This removes the counter permanently.')) await update({ kind: 'delete', id: action.id }, ctx);
+      }
+    }
   };
 
   pi.registerCommand('counter', {

@@ -77,14 +77,13 @@ for (const file of interactive) {
   const source = readFileSync(join(root, 'extensions', file), 'utf8');
   expect(`${file} uses shared visible-control system`, source.includes('interactive-view.ts'));
   expect(`${file} names close control`, /esc (?:close|back)/.test(source));
-  const customViews = source.match(/ctx\.ui\.custom/g)?.length ?? 0;
-  const focusedOverlays = source.match(/\{ overlay: true \}/g)?.length ?? 0;
-  expect(`${file} custom views retain focus across nested UI`, customViews > 0 && focusedOverlays >= customViews);
+  expect(`${file} has an inline custom view`, source.includes('ctx.ui.custom'));
+  expect(`${file} custom views are not overlays`, !source.includes('{ overlay: true }'));
 }
 for (const file of ['pet.ts']) {
   const source = readFileSync(join(root, 'extensions', file), 'utf8');
   expect(`${file} keeps controls visible`, source.includes("['↑↓ select · enter open · esc close']"));
-  expect(`${file} uses a focus-safe overlay`, source.includes('{ overlay: true }'));
+  expect(`${file} uses the inline close-action-reopen pattern`, source.includes('while (true)') && !source.includes('{ overlay: true }'));
 }
 for (const file of ['doctor.ts', 'locks.ts']) {
   const source = readFileSync(join(root, 'extensions', file), 'utf8');
